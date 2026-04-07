@@ -14,6 +14,13 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const appUrl = config.get<string>('APP_URL', 'http://localhost:3000');
   const port = Number(config.get<string>('PORT', '6273'));
+  const expressApp = app.getHttpAdapter().getInstance() as {
+    listen: (
+      port: number,
+      host: string,
+      callback: () => void,
+    ) => { on: (event: string, handler: (error: Error) => void) => void };
+  };
   const extraOrigins = (config.get<string>('CORS_ALLOWED_ORIGINS', '') || '')
     .split(',')
     .map((item) => item.trim())
@@ -65,6 +72,23 @@ async function bootstrap() {
   SwaggerModule.setup('docs', app, document);
 
   await app.listen(port, '0.0.0.0');
+
+  const fallbackPorts = Array.from(new Set([6273, 6173, 8080])).filter(
+    (candidate) => candidate !== port,
+  );
+
+  fallbackPorts.forEach((fallbackPort) => {
+    try {
+      const server = expressApp.listen(
+        fallbackPort,
+        '0.0.0.0',
+        () => undefined,
+      );
+      server.on('error', () => undefined);
+    } catch {
+      // ignore fallback port bind errors
+    }
+  });
 }
 
 void bootstrap();
