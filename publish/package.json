@@ -1,0 +1,14 @@
+{
+  "name": "fitness-publish-layer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Deployment layer for existing Next.js + NestJS codebase",
+  "scripts": {
+    "install:all": "npm --prefix .. run install:all",
+    "build:web": "npm --prefix ./web run build",
+    "deploy:pages": "npm --prefix ./web run deploy",
+    "deploy:web:worker": "npm --prefix ./web run deploy:worker",
+    "deploy:worker": "npm --prefix ./api-worker run deploy",
+    "db:seed": "node ./data/import-to-neon.mjs"
+  }
+}

@@ -1,0 +1,1232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  LOCKED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum MembershipStatus {
+  PROSPECT
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+enum LeadStatus {
+  NEW
+  CONSULTING
+  APPOINTED
+  QUOTED
+  OPEN
+  CONVERTED
+  CANCELLED
+}
+
+enum LeadPotential {
+  COLD
+  WARM
+  HOT
+}
+
+enum LeadActivityType {
+  CALL
+  MESSAGE
+  MEETING
+  QUOTE
+  CONSULTING
+  NOTE
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  EXPIRED
+  CANCELLED
+  CLOSED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+enum PaymentProcessingStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum LockerStatus {
+  EMPTY
+  RENTED
+  LOCKED
+  MAINTENANCE
+}
+
+enum LockerRentalStatus {
+  ACTIVE
+  RETURNED
+  OVERDUE
+  CANCELLED
+}
+
+enum DepositStatus {
+  HOLDING
+  RETURNED
+  OVERDUE
+  FORFEITED
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum TrainerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TrainingSessionStatus {
+  SCHEDULED
+  CHECKED_IN
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  CANCELLED
+  RESCHEDULED
+}
+
+enum StaffAttendanceEventType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum StaffAttendanceSource {
+  MACHINE
+  MANUAL
+  IMPORT
+}
+
+enum StaffAttendanceMethod {
+  FINGERPRINT
+  FACE
+  CARD
+  MOBILE
+  MANUAL
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  SUCCESS
+  ALERT
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  LOGIN
+  LOGOUT
+  EXPORT
+  APPROVE
+  CHECK_IN
+}
+
+model Branch {
+  id                 String   @id @default(cuid())
+  code               String   @unique
+  name               String
+  phone              String?
+  email              String?
+  address            String?
+  openingTime        String?
+  closingTime        String?
+  maxDepositHours    Int?     @default(24)
+  maxBookingsPerDay  Int?     @default(100)
+  requiresDeposit    Boolean  @default(false)
+  logoUrl            String?
+  note               String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+  createdById        String?
+  updatedById        String?
+  users              User[]
+  customers          Customer[]
+  leads              Lead[]
+  services           Service[]
+  contracts          Contract[]
+  trainers           PtTrainer[]
+  trainingSessions   TrainingSession[]
+  receipts           PaymentReceipt[]
+  expenses           PaymentExpense[]
+  lockers            Locker[]
+  lockerRentals      LockerRental[]
+  deposits           Deposit[]
+  products           Product[]
+  suppliers          Supplier[]
+  purchaseOrders     PurchaseOrder[]
+  attendanceMachines AttendanceMachine[]
+  staffAttendanceEvents StaffAttendanceEvent[]
+  smsConfigs         SmsConfig[]
+  emailConfigs       EmailConfig[]
+  zaloConfigs        ZaloConfig[]
+  birthdayTemplates  BirthdayTemplate[]
+  appSettings        AppSetting[]
+  notifications      Notification[]
+  attachments        Attachment[]
+  auditLogs          AuditLog[]
+  loginOtpChallenges LoginOtpChallenge[]
+
+  @@index([deletedAt])
+  @@map("branches")
+}
+
+model User {
+  id               String     @id @default(cuid())
+  branchId         String?
+  username         String     @unique
+  employeeCode     String?    @unique
+  attendanceCode   String?    @unique
+  fullName         String
+  email            String?    @unique
+  phone            String?    @unique
+  passwordHash     String
+  status           UserStatus @default(ACTIVE)
+  avatarUrl        String?
+  title            String?
+  rememberToken    String?
+  refreshTokenHash String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  deletedAt        DateTime?
+  createdById      String?
+  updatedById      String?
+  branch           Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  roles            UserRole[]
+  leadsAssigned    Lead[]     @relation("LeadAssignee")
+  customersAssigned Customer[] @relation("CustomerAssignee")
+  contractsSold    Contract[] @relation("ContractSaleUser")
+  loginOtpChallenges LoginOtpChallenge[]
+  staffAttendanceEvents StaffAttendanceEvent[]
+
+  @@index([branchId, status])
+  @@index([employeeCode])
+  @@index([attendanceCode])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  description String?
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@index([deletedAt])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  module      String
+  action      String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+
+  @@index([module, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model CustomerGroup {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  name        String
+  description String?
+  color       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+  customers   Customer[]
+
+  @@index([deletedAt])
+  @@map("customer_groups")
+}
+
+model CustomerSource {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  name        String
+  channel     String?
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+  customers   Customer[]
+
+  @@index([deletedAt])
+  @@map("customer_sources")
+}
+
+model Customer {
+  id               String           @id @default(cuid())
+  branchId         String
+  groupId          String?
+  sourceId         String?
+  assignedToId     String?
+  code             String
+  avatarUrl        String?
+  fullName         String
+  gender           Gender?
+  birthDate        DateTime?
+  phone            String?
+  phoneSecondary   String?
+  phoneTertiary    String?
+  email            String?
+  contactName      String?
+  contactPhone     String?
+  customerCardNumber String?
+  fingerprintCode  String?
+  identityNumber   String?
+  identityIssueDate DateTime?
+  identityIssuePlace String?
+  address          String?
+  city             String?
+  district         String?
+  ward             String?
+  occupation       String?
+  referralName     String?
+  registrationDate DateTime?        @default(now())
+  startTrainingDate DateTime?
+  endTrainingDate  DateTime?
+  cardCovid        String?
+  otherInfo        String?
+  profileCount     Int              @default(1)
+  serviceNote      String?
+  membershipStatus MembershipStatus @default(PROSPECT)
+  outstandingDebt  Decimal          @default(0) @db.Decimal(14, 2)
+  note             String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+  createdById      String?
+  updatedById      String?
+  branch           Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  group            CustomerGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  source           CustomerSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  assignedTo       User?            @relation("CustomerAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  customerFiles    CustomerFile[]
+  convertedLeads   Lead[]
+  contracts        Contract[]
+  lockerRentals    LockerRental[]
+  deposits         Deposit[]
+  trainingSessions TrainingSession[]
+  attendance       TrainingAttendance[]
+  receipts         PaymentReceipt[]
+
+  @@unique([branchId, code])
+  @@index([branchId, membershipStatus])
+  @@index([assignedToId])
+  @@index([phone])
+  @@index([email])
+  @@index([deletedAt])
+  @@map("customers")
+}
+
+model CustomerFile {
+  id           String      @id @default(cuid())
+  customerId   String
+  attachmentId String?
+  fileName     String
+  fileUrl      String
+  mimeType     String?
+  size         Int?
+  note         String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  customer     Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@map("customer_files")
+}
+
+model LeadSource {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  channel     String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  leads       Lead[]
+
+  @@index([deletedAt])
+  @@map("lead_sources")
+}
+
+model Lead {
+  id                  String        @id @default(cuid())
+  branchId            String
+  sourceId            String?
+  assignedToId        String?
+  convertedCustomerId String?
+  code                String
+  fullName            String
+  phone               String?
+  email               String?
+  demand              String?
+  campaign            String?
+  status              LeadStatus    @default(NEW)
+  potentialLevel      LeadPotential @default(WARM)
+  nextFollowUpAt      DateTime?
+  appointmentAt       DateTime?
+  careNote            String?
+  lastContactResult   String?
+  budgetExpected      Decimal?      @db.Decimal(14, 2)
+  convertedAt         DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  deletedAt           DateTime?
+  createdById         String?
+  updatedById         String?
+  branch              Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  source              LeadSource?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  assignedTo          User?         @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  convertedCustomer   Customer?     @relation(fields: [convertedCustomerId], references: [id], onDelete: SetNull)
+  logs                LeadLog[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([assignedToId])
+  @@index([deletedAt])
+  @@map("leads")
+}
+
+model LeadLog {
+  id             String           @id @default(cuid())
+  leadId         String
+  activityType   LeadActivityType
+  content        String
+  result         String?
+  nextFollowUpAt DateTime?
+  contactAt      DateTime         @default(now())
+  performedById  String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  lead           Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, contactAt])
+  @@map("lead_logs")
+}
+
+model Service {
+  id              String         @id @default(cuid())
+  branchId        String
+  code            String
+  name            String
+  category        String
+  description     String?
+  defaultPrice    Decimal        @default(0) @db.Decimal(14, 2)
+  durationDays    Int?
+  defaultSessions Int?
+  status          ServiceStatus  @default(ACTIVE)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+  branch          Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  packages        ServicePackage[]
+  contractItems   ContractItem[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([deletedAt])
+  @@map("services")
+}
+
+model ServicePackage {
+  id                 String         @id @default(cuid())
+  serviceId          String
+  code               String
+  name               String
+  price              Decimal        @default(0) @db.Decimal(14, 2)
+  sessionCount       Int            @default(0)
+  bonusSessions      Int            @default(0)
+  bonusDays          Int            @default(0)
+  durationDays       Int            @default(30)
+  packageType        String
+  remainingValueRule String?
+  description        String?
+  status             ServiceStatus  @default(ACTIVE)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  deletedAt          DateTime?
+  service            Service        @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  contracts          Contract[]
+  contractItems      ContractItem[]
+
+  @@unique([serviceId, code])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("service_packages")
+}
+
+model Contract {
+  id                String               @id @default(cuid())
+  branchId          String
+  customerId        String
+  servicePackageId  String
+  saleUserId        String?
+  trainerId         String?
+  code              String
+  contractType      String
+  packageName       String
+  startDate         DateTime
+  endDate           DateTime
+  totalSessions     Int                  @default(0)
+  usedSessions      Int                  @default(0)
+  remainingSessions Int                  @default(0)
+  bonusSessions     Int                  @default(0)
+  unitPrice         Decimal              @default(0) @db.Decimal(14, 2)
+  grossAmount       Decimal              @default(0) @db.Decimal(14, 2)
+  conversionFee     Decimal              @default(0) @db.Decimal(14, 2)
+  promotionMonths   Int                  @default(0)
+  promotionDays     Int                  @default(0)
+  promotionSessions Int                  @default(0)
+  discountFixed     Decimal              @default(0) @db.Decimal(14, 2)
+  discountPercent   Decimal              @default(0) @db.Decimal(5, 2)
+  totalDiscount     Decimal              @default(0) @db.Decimal(14, 2)
+  vatAmount         Decimal              @default(0) @db.Decimal(14, 2)
+  totalAmount       Decimal              @default(0) @db.Decimal(14, 2)
+  amountPaid        Decimal              @default(0) @db.Decimal(14, 2)
+  amountDue         Decimal              @default(0) @db.Decimal(14, 2)
+  remainingValue    Decimal              @default(0) @db.Decimal(14, 2)
+  paymentStatus     PaymentStatus        @default(UNPAID)
+  status            ContractStatus       @default(DRAFT)
+  richNote          String?
+  note              String?
+  oldContractCode   String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  deletedAt         DateTime?
+  createdById       String?
+  updatedById       String?
+  branch            Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer          Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  servicePackage    ServicePackage       @relation(fields: [servicePackageId], references: [id], onDelete: Restrict)
+  saleUser          User?                @relation("ContractSaleUser", fields: [saleUserId], references: [id], onDelete: SetNull)
+  trainer           PtTrainer?           @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  items             ContractItem[]
+  histories         ContractHistory[]
+  conversionsFrom   ContractConversion[] @relation("OldContractConversions")
+  conversionsTo     ContractConversion[] @relation("NewContractConversions")
+  receipts          PaymentReceipt[]
+  trainingSessions  TrainingSession[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([customerId])
+  @@index([endDate])
+  @@index([deletedAt])
+  @@map("contracts")
+}
+
+model ContractItem {
+  id               String          @id @default(cuid())
+  contractId       String
+  serviceId        String?
+  servicePackageId String?
+  description      String?
+  quantity         Int             @default(1)
+  sessionCount     Int             @default(0)
+  unitPrice        Decimal         @default(0) @db.Decimal(14, 2)
+  discountAmount   Decimal         @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal         @default(0) @db.Decimal(14, 2)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  contract         Contract        @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  service          Service?        @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  servicePackage   ServicePackage? @relation(fields: [servicePackageId], references: [id], onDelete: SetNull)
+
+  @@index([contractId])
+  @@map("contract_items")
+}
+
+model ContractHistory {
+  id         String   @id @default(cuid())
+  contractId String
+  action     String
+  note       String?
+  beforeData Json?
+  afterData  Json?
+  actedById  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId, createdAt])
+  @@map("contract_histories")
+}
+
+model ContractConversion {
+  id                 String   @id @default(cuid())
+  oldContractId      String
+  newContractId      String
+  conversionType     String
+  differenceAmount   Decimal  @default(0) @db.Decimal(14, 2)
+  convertedSessions  Int      @default(0)
+  remainingValueRule String?
+  note               String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  oldContract        Contract @relation("OldContractConversions", fields: [oldContractId], references: [id], onDelete: Cascade)
+  newContract        Contract @relation("NewContractConversions", fields: [newContractId], references: [id], onDelete: Cascade)
+
+  @@index([oldContractId])
+  @@index([newContractId])
+  @@map("contract_conversions")
+}
+
+model PtTrainer {
+  id               String             @id @default(cuid())
+  branchId         String
+  code             String
+  fullName         String
+  phone            String?
+  email            String?
+  specialty        String?
+  status           TrainerStatus      @default(ACTIVE)
+  note             String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  deletedAt        DateTime?
+  branch           Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  contracts        Contract[]
+  trainingSessions TrainingSession[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([deletedAt])
+  @@map("pt_trainers")
+}
+
+model TrainingSession {
+  id               String                @id @default(cuid())
+  branchId         String
+  contractId       String?
+  customerId       String
+  trainerId        String?
+  code             String
+  scheduledAt      DateTime
+  durationMinutes  Int                   @default(60)
+  location         String?
+  status           TrainingSessionStatus @default(SCHEDULED)
+  checkInAt        DateTime?
+  checkOutAt       DateTime?
+  consumedSessions Int                   @default(1)
+  outcome          String?
+  note             String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  deletedAt        DateTime?
+  branch           Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  contract         Contract?             @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  customer         Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  trainer          PtTrainer?            @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  attendance       TrainingAttendance[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([customerId])
+  @@index([scheduledAt])
+  @@index([deletedAt])
+  @@map("training_sessions")
+}
+
+model TrainingAttendance {
+  id               String           @id @default(cuid())
+  sessionId        String
+  customerId       String
+  status           AttendanceStatus @default(PRESENT)
+  checkInAt        DateTime?
+  consumedSessions Int              @default(1)
+  note             String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  session          TrainingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  customer         Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@index([sessionId])
+  @@index([customerId])
+  @@map("training_attendance")
+}
+
+model PaymentMethod {
+  id        String           @id @default(cuid())
+  code      String           @unique
+  name      String
+  type      String
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  receipts  PaymentReceipt[]
+  expenses  PaymentExpense[]
+
+  @@map("payment_methods")
+}
+
+model PaymentReceipt {
+  id              String                  @id @default(cuid())
+  branchId        String
+  customerId      String?
+  contractId      String?
+  paymentMethodId String?
+  code            String
+  receiptDate     DateTime
+  amount          Decimal                 @default(0) @db.Decimal(14, 2)
+  content         String?
+  sourceType      String?
+  lineItems       Json?
+  collectorId     String?
+  status          PaymentProcessingStatus @default(COMPLETED)
+  note            String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  deletedAt       DateTime?
+  branch          Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer        Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contract        Contract?               @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  paymentMethod   PaymentMethod?          @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, code])
+  @@index([branchId, receiptDate])
+  @@index([contractId])
+  @@index([deletedAt])
+  @@map("payments_receipt")
+}
+
+model PaymentExpense {
+  id              String                  @id @default(cuid())
+  branchId        String
+  paymentMethodId String?
+  code            String
+  expenseDate     DateTime
+  payeeName       String
+  expenseType     String
+  amount          Decimal                 @default(0) @db.Decimal(14, 2)
+  lineItems       Json?
+  approverId      String?
+  createdUserId   String?
+  status          PaymentProcessingStatus @default(COMPLETED)
+  note            String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  deletedAt       DateTime?
+  branch          Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  paymentMethod   PaymentMethod?          @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, code])
+  @@index([branchId, expenseDate])
+  @@index([deletedAt])
+  @@map("payments_expense")
+}
+
+model Locker {
+  id        String       @id @default(cuid())
+  branchId  String
+  code      String
+  name      String
+  label     String?
+  price     Decimal      @default(0) @db.Decimal(14, 2)
+  status    LockerStatus @default(EMPTY)
+  note      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+  branch    Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  rentals   LockerRental[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([deletedAt])
+  @@map("lockers")
+}
+
+model LockerRental {
+  id            String             @id @default(cuid())
+  branchId      String
+  lockerId      String
+  customerId    String
+  code          String
+  startDate     DateTime
+  endDate       DateTime
+  depositAmount Decimal            @default(0) @db.Decimal(14, 2)
+  processedById String?
+  status        LockerRentalStatus @default(ACTIVE)
+  note          String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  deletedAt     DateTime?
+  branch        Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  locker        Locker             @relation(fields: [lockerId], references: [id], onDelete: Restrict)
+  customer      Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  deposits      Deposit[]
+
+  @@unique([branchId, code])
+  @@index([lockerId, status])
+  @@index([customerId])
+  @@index([deletedAt])
+  @@map("locker_rentals")
+}
+
+model Deposit {
+  id             String        @id @default(cuid())
+  branchId       String
+  customerId     String?
+  lockerRentalId String?
+  code           String
+  itemType       String
+  amount         Decimal       @default(0) @db.Decimal(14, 2)
+  receivedAt     DateTime
+  returnedAt     DateTime?
+  processedById  String?
+  status         DepositStatus @default(HOLDING)
+  note           String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+  branch         Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lockerRental   LockerRental? @relation(fields: [lockerRentalId], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([deletedAt])
+  @@map("deposits")
+}
+
+model ProductCategory {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+
+  @@map("product_categories")
+}
+
+model Product {
+  id               String           @id @default(cuid())
+  branchId         String
+  categoryId       String?
+  code             String
+  name             String
+  unit             String
+  groupName        String?
+  purchasePrice    Decimal          @default(0) @db.Decimal(14, 2)
+  salePrice        Decimal          @default(0) @db.Decimal(14, 2)
+  stockQuantity    Int              @default(0)
+  minStockQuantity Int              @default(0)
+  status           ProductStatus    @default(ACTIVE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+  branch           Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  category         ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  purchaseItems    PurchaseOrderItem[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([deletedAt])
+  @@map("products")
+}
+
+model Supplier {
+  id             String          @id @default(cuid())
+  branchId       String
+  code           String
+  name           String
+  contactName    String?
+  phone          String?
+  email          String?
+  address        String?
+  note           String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([branchId, code])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id            String              @id @default(cuid())
+  branchId      String
+  supplierId    String
+  code          String
+  orderDate     DateTime
+  expectedDate  DateTime?
+  totalAmount   Decimal             @default(0) @db.Decimal(14, 2)
+  status        PurchaseOrderStatus @default(DRAFT)
+  createdUserId String?
+  note          String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  deletedAt     DateTime?
+  branch        Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier      Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items         PurchaseOrderItem[]
+
+  @@unique([branchId, code])
+  @@index([branchId, status])
+  @@index([deletedAt])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Int
+  unitPrice       Decimal       @default(0) @db.Decimal(14, 2)
+  totalPrice      Decimal       @default(0) @db.Decimal(14, 2)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@map("purchase_order_items")
+}
+
+model AttendanceMachine {
+  id               String   @id @default(cuid())
+  branchId         String
+  code             String   @unique
+  name             String
+  connectionPort   String?
+  host             String?
+  password         String?
+  syncEnabled      Boolean  @default(true)
+  connectionStatus String   @default("DISCONNECTED")
+  lastSyncedAt     DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  branch           Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  staffAttendanceEvents StaffAttendanceEvent[]
+
+  @@index([branchId, connectionStatus])
+  @@map("attendance_machines")
+}
+
+model StaffAttendanceEvent {
+  id                  String                   @id @default(cuid())
+  branchId            String
+  userId              String
+  attendanceMachineId String?
+  eventAt             DateTime
+  eventType           StaffAttendanceEventType
+  verificationMethod  StaffAttendanceMethod    @default(FINGERPRINT)
+  source              StaffAttendanceSource    @default(MACHINE)
+  rawCode             String?
+  note                String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  branch              Branch                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attendanceMachine   AttendanceMachine?       @relation(fields: [attendanceMachineId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, eventAt])
+  @@index([userId, eventAt])
+  @@index([attendanceMachineId, eventAt])
+  @@map("staff_attendance_events")
+}
+
+model SmsConfig {
+  id               String   @id @default(cuid())
+  branchId         String?
+  provider         String
+  apiUrl           String?
+  apiKey           String?
+  secretKey        String?
+  senderName       String?
+  maxPerDay        Int      @default(1000)
+  templateOtp      String?
+  templateReminder String?
+  templateBirthday String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  branch           Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, isActive])
+  @@map("sms_configs")
+}
+
+model EmailConfig {
+  id               String   @id @default(cuid())
+  branchId         String?
+  provider         String
+  host             String?
+  port             Int?
+  username         String?
+  password         String?
+  encryption       String?
+  fromName         String?
+  fromEmail        String?
+  maxPerDay        Int      @default(1000)
+  templateBirthday String?
+  templateOtp      String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  branch           Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, isActive])
+  @@map("email_configs")
+}
+
+model ZaloConfig {
+  id               String   @id @default(cuid())
+  branchId         String?
+  oaName           String?
+  oaId             String?
+  appId            String?
+  appSecret        String?
+  token            String?
+  refreshToken     String?
+  maxPerDay        Int      @default(1000)
+  templateBirthday String?
+  templateReminder String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  branch           Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, isActive])
+  @@map("zalo_configs")
+}
+
+model LoginOtpChallenge {
+  id               String   @id @default(cuid())
+  userId           String
+  branchId         String?
+  purpose          String   @default("LOGIN")
+  channel          String   @default("ZALO")
+  deliveryTarget   String
+  codeHash         String
+  expiresAt        DateTime
+  sentAt           DateTime?
+  verifiedAt       DateTime?
+  consumedAt       DateTime?
+  attempts         Int      @default(0)
+  maxAttempts      Int      @default(5)
+  requestIp        String?
+  userAgent        String?
+  providerResponse Json?
+  failureReason    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch           Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([deliveryTarget, createdAt])
+  @@index([expiresAt])
+  @@index([consumedAt])
+  @@map("login_otp_challenges")
+}
+
+model BirthdayTemplate {
+  id         String   @id @default(cuid())
+  branchId   String?
+  name       String
+  title      String
+  content    String
+  targetType String
+  remindDays Int      @default(0)
+  channel    String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  branch     Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, isActive])
+  @@map("birthday_templates")
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  branchId   String?
+  module     String
+  entityType String?
+  entityId   String?
+  action     AuditAction
+  ipAddress  String?
+  userAgent  String?
+  beforeData Json?
+  afterData  Json?
+  metadata   Json?
+  createdAt  DateTime    @default(now())
+  branch     Branch?     @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([module, action])
+  @@index([branchId, createdAt])
+  @@map("audit_logs")
+}
+
+model AppSetting {
+  id        String   @id @default(cuid())
+  branchId  String?
+  group     String
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, group, key])
+  @@index([group, key])
+  @@map("app_settings")
+}
+
+model TenantDatabase {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  databaseHost String
+  databasePort Int      @default(5432)
+  databaseName String   @unique
+  databaseUser String
+  connectionUrl String  @unique
+  adminUsername String?
+  adminEmail   String?
+  branchName   String?
+  appUrl       String?
+  note         String?
+  isActive     Boolean  @default(true)
+  isSystem     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdById  String?
+  updatedById  String?
+
+  @@index([isActive, isSystem])
+  @@map("tenant_databases")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  branchId  String?
+  userId    String?
+  title     String
+  content   String
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false)
+  actionUrl String?
+  payload   Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  branch    Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, isRead])
+  @@map("notifications")
+}
+
+model Attachment {
+  id            String         @id @default(cuid())
+  branchId      String?
+  entityType    String
+  entityId      String
+  fileName      String
+  fileUrl       String
+  mimeType      String?
+  size          Int?
+  bucket        String?
+  objectKey     String?
+  uploadedById  String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  branch        Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  customerFiles CustomerFile[]
+
+  @@index([entityType, entityId])
+  @@map("attachments")
+}

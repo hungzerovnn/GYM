@@ -1,0 +1,2254 @@
+# Work Progress
+
+Updated: 2026-04-06 15:08 Asia/Bangkok
+
+## Current Runtime
+
+- Web: `http://localhost:6173`
+- API: `http://localhost:6273/api`
+- Swagger: `http://localhost:6273/docs`
+- PostgreSQL dev runtime: `localhost:5433 / fitness_management`
+- Note: older `3001` mentions further below are historical verification logs from previous sessions.
+- Seed login:
+  - `admin@fitflow.local / Admin@123`
+  - `sales@fitflow.local / Admin@123`
+
+## Completed In This Session
+
+### Navigation / Layout
+
+- Top menu changed to compact horizontal enterprise style.
+- Menu groups now open on hover.
+- Removed click-to-lock behavior on top menu.
+- Header typography reduced to smaller, denser admin sizing.
+- Filter sidebar width reduced to save space for content.
+
+### Login / Platform Stability
+
+- Fixed API CORS for local frontend on port `6173`.
+- Fixed portal route hydration issue caused by async client page.
+- Restarted API and Web successfully after major UI/backend changes.
+- Tenant/CSDL default app URL is now separated from the running local frontend port:
+  - tenant database default `appUrl` now falls back to `http://localhost:6273`
+  - local web app runtime still stays on `http://localhost:6173`
+  - tenant-database form now hints that leaving `App URL` blank will use `6273`
+
+### Permission / Runtime QA Hardening
+
+- Added permission-aware endpoint resolution in the web portal so helper queries no longer call hidden modules by direct route:
+  - resource pages now stop list fetches when the current role lacks `.view`
+  - report pages now stop branch/template helper fetches when the role lacks `branches.view` or `settings.view`
+  - settings pages now short-circuit to an unauthorized empty state instead of fetching hidden settings APIs
+  - dashboard branch filters now fall back to the current branch for non-global users instead of hitting `/branches`
+- Removed the unsafe `Accept-Charset` request header from the shared web API client so browser console noise is gone during runtime QA.
+- Auth payloads now include `branchName`, which is used by permission-aware filter fallbacks and detail surfaces.
+- Added endpoint-permission lookup wiring in the web config so filter helpers can reason about hidden resource/settings endpoints consistently.
+- Expanded operational role lookup permissions in backend role-catalog logic:
+  - `sales` now receives lookup `view` permissions for `branches`, `users`, `customer-groups`, `customer-sources`, `service-packages`, and `trainers`
+  - `customer_care` now receives lookup `view` permissions for `branches`, `users`, `customer-groups`, and `customer-sources`
+  - `accountant` now receives lookup `view` permissions for `branches` and `users`
+  - `trainer` now receives lookup `view` permissions for `branches` and `contracts`
+- Added a backend role-permission catalog sync migration so existing databases are upgraded automatically on login instead of only future seeds/bootstraps receiving the new lookup grants.
+- Fixed the local environment mismatch where `.env` still pointed at PostgreSQL `5432` while the installed PostgreSQL 18 service actually listens on `5433`.
+- Recreated the local dev database on PostgreSQL `5433`, applied all Prisma migrations, and reseeded demo data successfully.
+- Fixed the form-render feedback loop in both Pro Shop and Purchase Order item-grid fields by switching the emitted change bridge to `useEffectEvent`.
+- Verified runtime QA after this hardening pass:
+  - full portal browser crawl: `108` routes checked, `0` issues
+  - sales-role create-dialog crawl: `54` resource routes scanned, `15` create-capable screens opened, `0` issues
+  - local DB recovery: migrations applied cleanly on `fitness_management @ localhost:5433`
+  - `sales@fitflow.local` login now returns the expected new lookup permissions plus `branchName`
+  - Pro Shop sales create dialog opens cleanly after the line-item field fix
+
+### Non-Admin Role QA Follow-Up
+
+- Continued the next runtime hardening pass for non-admin create dialogs by adding a reusable browser crawler:
+  - [scripts/role-create-dialog-crawl.mjs](c:\xampp\htdocs\GYM\scripts\role-create-dialog-crawl.mjs)
+  - crawler logs in by API, injects auth into the web app, scans resource routes, opens create dialogs, and records 4xx/JS/runtime issues plus screenshots
+  - supports env filters so targeted re-runs can focus on specific roles or routes
+- Expanded backend lookup `view` grants again after the targeted role QA uncovered missing helper-option permissions:
+  - `accountant` now also receives lookup `view` permissions for `customer-groups`, `customer-sources`, `service-packages`, and `trainers`
+  - `trainer` now also receives lookup `view` permissions for `users`, `customer-groups`, and `customer-sources`
+- Updated both seed role grants and runtime role-catalog sync logic so fresh seeds and existing databases stay aligned:
+  - [prisma/seed.ts](c:\xampp\htdocs\GYM\prisma\seed.ts)
+  - [apps/api/src/common/constants/bootstrap.constants.ts](c:\xampp\htdocs\GYM\apps\api\src\common\constants\bootstrap.constants.ts)
+  - [apps/api/src/modules/permissions/permissions.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\permissions\permissions.service.ts)
+  - role-permission catalog sync key bumped again so the current local database receives the new lookup grants on login without reseeding
+- Fixed the API production start script so local prod restarts now load the compiled Nest entry correctly on Windows:
+  - [apps/api/package.json](c:\xampp\htdocs\GYM\apps\api\package.json)
+  - `start:prod` now runs `node dist/main.js` instead of the broken extensionless path
+
+### Seed / Reference Data
+
+- Expanded seeded reference data so the app has enough rows for comparison-based testing instead of only a few example records.
+- `npm run db:seed` now loads:
+  - `24` customers
+  - `24` leads
+  - `35` lead logs
+  - `24` contracts
+  - `24` receipts
+  - `20` operating expenses
+  - `23` training sessions
+  - `21` training-attendance rows
+  - `3` trainers
+- Seeded records are now distributed across both branches with more realistic variation in:
+  - customer profile fields
+  - lead status / conversion state
+  - contract package type / payment state / lifecycle status
+  - receipt and expense dates / amounts
+  - PT session completion / absence / upcoming schedule
+- Added deterministic generated demo members and prospects so reseeding keeps stable codes/counts for test comparison.
+
+### Customer Module
+
+- Expanded customer database schema with real fields:
+  - `assignedToId`
+  - `contactName`, `contactPhone`
+  - `customerCardNumber`, `fingerprintCode`
+  - `phoneSecondary`, `phoneTertiary`
+  - `identityIssueDate`, `identityIssuePlace`
+  - `district`, `ward`
+  - `registrationDate`, `startTrainingDate`, `endTrainingDate`
+  - `cardCovid`, `otherInfo`, `profileCount`, `serviceNote`
+- Added relation from customer to assigned user.
+- Applied Prisma migration:
+  - [20260401093103_customer_profile_expansion](c:\xampp\htdocs\GYM\prisma\migrations\20260401093103_customer_profile_expansion\migration.sql)
+- Regenerated Prisma client.
+- Reseeded demo data with richer customer profiles.
+
+### Customer API
+
+- Customer create/update DTO expanded to support new fields.
+- Customer list now returns richer display data:
+  - `customerInfo`
+  - `fullAddress`
+  - `branchName`
+  - `groupName`
+  - `assignedUserName`
+  - `registrationDate`
+- Customer detail endpoint also returns enriched display fields.
+
+### Customer UI
+
+- Customer create/edit form expanded with many more fields.
+- Form spacing tightened.
+- Form footer buttons moved into visible sticky bottom area so `Create/Update` is not lost.
+- Customer list columns expanded to match user-required business fields.
+- Table now uses fixed horizontal layout with horizontal scroll instead of aggressively wrapping all content.
+- Mouse wheel inside table now scrolls horizontally.
+
+### Report Module
+
+- Fixed a core report workspace bug:
+  - report screens cloned from `reportRegistry` were using page keys like `reports-kpi-page` instead of base report keys like `kpi`
+  - chart selection / formatter logic now uses `baseKey` correctly
+- Reports now default to a broader recent time window on backend when date filters are left blank, so seeded data does not disappear just because the current date moved into a new month.
+- Added real API endpoints and calculations for report screens that were previously mapped to unrelated placeholder/skeleton reports:
+  - `GET /reports/checkin`
+  - `GET /reports/pt-training`
+  - `GET /reports/class-attendance`
+  - `GET /reports/allocation`
+  - `GET /reports/sales-summary`
+  - `GET /reports/debt`
+  - `GET /reports/branch-summary`
+  - `GET /reports/package-progress`
+  - `GET /reports/card-revenue`
+  - `GET /reports/staff-review`
+  - `GET /reports/lead-status`
+- Existing report API kept and aligned with the richer report screen registry:
+  - `kpi`
+  - `lead`
+  - `branch-revenue`
+  - `contract-remain`
+  - `payment`
+  - `deposit`
+  - `trainer-performance`
+  - `birthday`
+  - `follow-up`
+- Report screens in portal config are now mapped to the correct report types instead of reusing wrong data:
+  - `Bao cao Checkin`
+  - `PT - Training`
+  - `Cham cong lop`
+  - `Bao cao phan bo`
+  - `Tong hop Sale goi dich vu`
+  - `Cong no`
+  - `Tong hop chi nhanh`
+  - `Goi tap - qua trinh tap`
+  - `Bao cao doanh thu the luot`
+  - `Bao cao danh gia nhan vien`
+  - `Bao cao trang thai Lead`
+- `pt-schedule/booking-report` now uses its own PT-training style report instead of borrowing trainer-performance directly.
+- Report workspace table formatting is deeper now:
+  - handles more currency fields
+  - formats percent/index/progress metrics
+  - formats booleans
+  - badges more status/urgency/priority values
+- Extended status badge coverage for report-heavy states such as:
+  - `CHECKED_IN`, `MISSED`, `OVERDUE`, `DUE_SOON`, `TODAY`, `SOON`, `PLANNED`
+  - `HIGH`, `MEDIUM`, `NORMAL`
+  - `PAUSED`, `EXPIRED`, `DRAFT`, `FORFEITED`
+  - `WARM`, `HOT`, `COLD`
+
+### Lead / Contract / Cashbook Deepening
+
+- Lead API is richer now:
+  - added `GET /lead-sources` for real lead source option data
+  - lead list/detail now return display-oriented fields such as:
+    - `sourceName`
+    - `assignedUserName`
+    - `convertedCustomerName`
+    - `followUpState`
+    - `logCount`
+    - `lastContactResult`
+    - `latestPerformedByName`
+    - `leadAgeDays`
+- Lead UI is deeper now:
+  - lead form now supports `sourceId`
+  - lead form now supports `lastContactResult`
+  - lead form now supports `budgetExpected`
+  - lead form now supports `convertedCustomerId`
+  - lead table now shows source, assignee, follow-up state and budget instead of only basic profile columns
+  - lead detail drawer now summarizes source, assignee, follow-up state and budget more clearly
+- Contract API is richer now:
+  - contract list/detail now return display-oriented fields such as:
+    - `customerName`
+    - `customerPhone`
+    - `branchName`
+    - `servicePackageName`
+    - `serviceName`
+    - `saleUserName`
+    - `trainerName`
+    - `sessionUsage`
+    - `sessionProgressPercent`
+    - `paidPercent`
+    - `daysRemaining`
+  - contract detail now enriches:
+    - item lines with service/package labels
+    - history lines with actor names
+    - conversion records with related contract codes
+- Contract UI is deeper now:
+  - contract form expanded with pricing and discount fields:
+    - `unitPrice`
+    - `grossAmount`
+    - `bonusSessions`
+    - `discountFixed`
+    - `discountPercent`
+    - `totalDiscount`
+    - `vatAmount`
+    - `remainingValue`
+    - `oldContractCode`
+  - contract table now shows customer, session usage and sale owner
+  - contract detail drawer now has real sections for:
+    - receipts
+    - item lines
+    - training sessions
+    - conversions
+- Cashbook / Finance API is richer now:
+  - added `GET /payment-methods` for real payment method option data
+  - added `GET /receipts/:id`
+  - added `GET /expenses/:id`
+  - receipt list/detail now return:
+    - `branchName`
+    - `customerName`
+    - `customerPhone`
+    - `contractCode`
+    - `contractPackageName`
+    - `paymentMethodName`
+    - `collectorName`
+  - expense list/detail now return:
+    - `branchName`
+    - `paymentMethodName`
+    - `approverName`
+    - `createdUserName`
+  - fixed contract balance sync so `amountPaid`, `amountDue`, `paymentStatus` are recalculated not only on create receipt, but also on update and delete receipt
+- Cashbook / Finance UI is deeper now:
+  - receipt form now supports `paymentMethodId`
+  - expense form now supports `paymentMethodId`, `approverId`, `createdUserId`
+  - receipt table now shows customer, contract, payment method and collector
+  - expense table now shows payment method, approver and status
+  - receipt/expense detail drawers are now backed by real detail endpoints instead of only list-row previews
+
+### Settings Module Deepening
+
+- Settings backend is no longer limited to only a few hardcoded pages:
+  - added scoped JSON setting registry backed by `app_settings`
+  - new real config endpoints now exist for:
+    - `GET|PATCH /settings/company`
+    - `GET|PATCH /settings/e-invoice`
+    - `GET|PATCH /settings/bank`
+    - `GET|PATCH /settings/code-generation`
+    - `GET|PATCH /settings/print-templates`
+    - `GET|PATCH /settings/report-templates`
+    - `GET|PATCH /settings/promotions`
+    - `GET|PATCH /settings/loyalty-points`
+    - `GET|PATCH /settings/loyalty-benefits`
+    - `GET|PATCH /settings/tags`
+    - `GET|PATCH /settings/custom-fields`
+    - `GET|PATCH /settings/marketing`
+    - `GET|PATCH /settings/rounding`
+    - `GET|PATCH /settings/penalty`
+- Existing settings endpoints were also improved:
+  - `GET /settings/sms`, `GET /settings/email`, `GET /settings/zalo` now mask sensitive secrets such as API key, password, token, refresh token
+  - update logic preserves current secret values when the UI submits masked placeholders unchanged
+  - birthday template list/create/update now include richer branch-aware payloads
+  - general setting now returns metadata like `settingId`, `createdAt`, `updatedAt`
+- Settings UI is much deeper now:
+  - many settings pages are no longer mapped to unrelated borrowed configs/resources
+  - `Thiet lap cong ty`, `Hoa don dien tu`, `Bank`, `Sinh ma`, `Mau in`, `Mau bao cao`, `Khuyen mai`, `Loyalty`, `Tags`, `Custom fields`, `Marketing`, `Lam tron`, `Penalty` now point to their own setting definitions/endpoints
+  - `Quan ly tich diem`, `Uu dai Loyalty`, `Cau hinh Tag` are no longer fake resource pages hijacking customer or customer-group modules
+  - settings workspace now supports:
+    - grouped sections per setting
+    - branch option dropdowns loaded from API
+    - password/sensitive fields for secret configs
+    - summary cards and operation context
+    - a dedicated communication workspace showing SMS, Email, Zalo together instead of treating that screen as only a Zalo form
+  - birthday template workspace now shows branch and active status instead of a minimal table
+
+### Staff Attendance Deepening
+
+- `Cham cong nhan vien` is no longer a placeholder page borrowing `attendance-machines`.
+- Added a real raw attendance event model in Prisma:
+  - `StaffAttendanceEvent`
+  - enums for event type, source and verification method
+- Applied Prisma migration:
+  - [20260401204500_staff_attendance_events](c:\xampp\htdocs\GYM\prisma\migrations\20260401204500_staff_attendance_events\migration.sql)
+- Seed data is richer now:
+  - added an HR staff account
+  - seeded machine-linked punch events for manager, sales, accountant, trainer, HR and CSKH
+  - includes realistic cases such as:
+    - on-time attendance
+    - late arrivals
+    - missing checkout
+    - absences on active attendance days
+- Added real report API:
+  - `GET /reports/staff-attendance`
+  - branch scope aware
+  - date range aware
+  - calculates:
+    - first check-in / last check-out
+    - worked hours
+    - late minutes
+    - overtime minutes
+    - machine usage
+    - verification method
+    - attendance status per staff/day
+- Staff attendance UI/report is deeper now:
+  - `reports/staff-attendance` now maps to a true report definition
+  - summary cards show staff count, present days, late arrivals, missing checkout, absent days and total worked hours
+  - analytics chart now aggregates worked hours / late minutes / absent days by staff
+  - status badge coverage extended for:
+    - `ON_TIME`
+    - `LATE`
+  - `ABSENT`
+  - `MISSING_CHECKOUT`
+
+### Staff Attendance Operations
+
+- Added an HR operations workspace for manual punch adjustment and audit-friendly attendance maintenance:
+  - `GET|POST /staff-attendance-events`
+  - `GET|PATCH|DELETE /staff-attendance-events/:id`
+- Backend now supports:
+  - branch-scoped attendance event list with filters by date, source and event type
+  - detail endpoint for a single attendance event
+  - create / update / delete manual attendance events with validation:
+    - employee must belong to selected branch
+    - attendance machine, if selected, must belong to selected branch
+    - `source=MACHINE` requires an attendance machine
+    - `source=MANUAL` / `IMPORT` automatically clears machine linkage
+- Attendance event payloads are enriched for UI instead of exposing only raw ids:
+  - `branchName`
+  - `staffCode`
+  - `staffName`
+  - `staffTitle`
+  - `roleNames`
+  - `machineName`
+  - `machineCode`
+  - `eventDate`
+  - `eventTime`
+  - `eventDateTime`
+  - `createdDateTime`
+  - `updatedDateTime`
+- Frontend now has a dedicated page:
+  - `/staff/attendance-adjustments`
+  - menu item under `Nhan vien`
+  - full resource workspace with search, filters, create/edit/delete and detail drawer
+- Detail drawer for attendance adjustments now includes:
+  - richer summary chips
+  - attendance event info cards
+  - audit log tab using entity type `staff_attendance_event`
+- Status badge coverage extended further for attendance operations:
+  - `CHECK_IN`
+  - `CHECK_OUT`
+  - `MACHINE`
+  - `MANUAL`
+  - `IMPORT`
+  - `FINGERPRINT`
+  - `FACE`
+  - `CARD`
+  - `MOBILE`
+- Verified business effect:
+  - creating a manual `CHECK_IN` event for an absent manager on `2026-04-01` changed that row in `/reports/staff-attendance` from `ABSENT` to `MISSING_CHECKOUT`
+  - deleting the event restored clean data afterwards
+
+### Settings Core Resource Deepening
+
+- Continued the "remaining resource dialogs outside customer/lead/contract/cashbook" pass by deepening core settings resources:
+  - `branches`
+  - `users`
+  - `roles`
+  - `attendance-machines`
+- Backend now has real detail endpoints for settings core resources that previously only had list/create/update/delete flows wired in practice:
+  - `GET /branches/:id`
+  - `GET /users/:id`
+  - `GET /roles/:id`
+  - `GET /attendance-machines/:id`
+- Backend list/detail payloads are richer and more UI-oriented now:
+  - branch payloads now expose:
+    - `operatingHours`
+    - `requiresDepositLabel`
+    - `userCount`
+    - `customerCount`
+    - `trainerCount`
+    - `attendanceMachineCount`
+    - related `users`
+    - related `attendanceMachines`
+  - user payloads now expose:
+    - `branchName`
+    - `roleIds`
+    - `roleNames`
+    - `roleCount`
+    - aggregated `permissions`
+    - `permissionCount`
+    - `lastLoginDateTime`
+  - role payloads now expose:
+    - `roleType`
+    - `permissionCount`
+    - `userCount`
+    - `permissionIds`
+    - related `permissions`
+    - related `users`
+  - attendance machine payloads now expose:
+    - `branchName`
+    - `syncLabel`
+    - `passwordStatus`
+    - `eventCount`
+    - `recentEvents`
+    - `lastSyncedDateTime`
+- Settings core UI is deeper now:
+  - branch table shows operating window, staffing count, machine count and deposit rule context
+  - user table shows branch, title, role names and last login instead of only basic identity columns
+  - role form now supports real multi-select permissions from `/permissions`
+  - attendance machine form now supports:
+    - sync enabled on/off
+    - typed connection status options
+    - password input rendered as password field instead of plain text
+  - resource detail drawer now has dedicated summaries/tabs for:
+    - branch operations / users / machines
+    - user roles / aggregated permissions
+    - role permissions / assigned users
+    - attendance machine config / recent punch events
+- Form dialog relationship prefill is more generic now:
+  - multi-select edit flow no longer only understands `roleIds`
+  - `permissionIds` edit flow now preloads correctly too
+- Status badge coverage extended for attendance machine runtime states:
+  - `SYNCING`
+  - `ERROR`
+
+### Staff Roles / Permission UX
+
+- Employee role assignment is easier now:
+  - `Nhan vien` form no longer uses the old multi-select scroll box for `Vai tro`
+  - role selection now renders as a checklist/card list with:
+    - `Chon tat ca`
+    - `Bo chon`
+    - tick tung vai tro rieng le
+    - role context such as type / permission count / user count
+- Role permission management is deeper now:
+  - `Vai tro` form no longer uses a raw multi-select for `Quyen`
+  - permissions now render as a grouped matrix of business functions/features
+  - each module group shows its own permission list and selection counter
+  - supports:
+    - `Chon tat ca`
+    - `Bo chon`
+    - `Chon nhom`
+    - `Bo nhom`
+    - tick tung quyen rieng theo action
+- Permission groups are organized by module/functionality such as:
+  - `Khach hang`
+  - `Lead`
+  - `Hop dong`
+  - `Phieu thu`
+  - `Phieu chi`
+  - `San pham`
+  - `Bao cao`
+  - `Nhan vien`
+  - `Vai tro`
+  - `Thiet lap`
+- Individual permission labels are also easier to read now:
+  - `Xem`
+  - `Tao moi`
+  - `Cap nhat`
+  - `Xoa`
+  - `Khoi phuc`
+  - `Phe duyet`
+  - `Xuat file`
+  - `Bao cao`
+  - `Pham vi chi nhanh`
+  - `Du lieu cua toi`
+- Role permission setup now has an extra feature/module selection layer:
+  - a dedicated `Tinh nang ap dung cho vai tro` checklist sits above the permission matrix
+  - supports `Chon tat ca tinh nang`
+  - supports `Bo tat ca tinh nang`
+  - supports tick tung tinh nang / module rieng le
+- Feature toggles now directly control permission scope:
+  - turning off a feature removes all permissions in that module from the role
+  - permission search/results only show modules currently enabled for the role
+  - copy-from-role actions automatically reopen the feature groups required by the copied permissions
+- Report permissions are now no longer limited to one generic `Bao cao` access switch:
+  - backend now exposes 21 detailed report-view permissions such as:
+    - `reports-kpi.view`
+    - `reports-debt.view`
+    - `reports-staff-attendance.view`
+    - `reports-sales-summary.view`
+    - `reports-lead-status.view`
+  - role matrix now shows each report as its own selectable permission module instead of forcing all report access through only `reports.view`
+  - report screens and report APIs now read those detailed permission codes directly
+  - existing roles that previously had generic `reports.view` were backfilled one time so current users do not suddenly lose report access after this upgrade
+  - report menu visibility now follows per-report view permission instead of always showing every report link
+
+### Printing / Template Workflow
+
+- Added direct print actions for the main voucher/resource screens that needed them:
+  - `Phieu thu`
+  - `Phieu chi`
+  - `Ban hang`
+  - `Tra hang`
+- Resource workspace now supports:
+  - `In danh sach` from the page header for printable voucher pages
+  - per-row print action directly in the table action column
+  - print output generated from a dedicated print renderer instead of raw browser page printing
+- Report printing is richer now:
+  - report screens no longer rely on plain `window.print()` for the full admin page
+  - print now uses a dedicated report document renderer with summary, filters and results table
+  - report print can consume report-template settings such as orientation, header/footer and visibility toggles
+- Settings template screens are more useful now:
+  - `Quan ly mau in` now has `In xem truoc`
+  - `Quan ly mau bao cao` now has `In xem truoc`
+- Print-template configuration is broader now:
+  - added dedicated header/footer fields for:
+    - `phieu thu`
+    - `phieu chi`
+    - `ban hang`
+    - `tra hang`
+  - existing common print controls such as paper size, default printer and signature toggle are still preserved
+- Report-template configuration is broader now:
+  - added:
+    - `reportHeader`
+    - `reportFooter`
+    - `defaultOrientation`
+    - `showPrintedAt`
+    - `showFilters`
+    - `showSignature`
+- Backend defaults for `/settings/print-templates` and `/settings/report-templates` were extended to match the new UI fields so these values round-trip cleanly through the real API.
+- Printing flow for voucher rows is deeper now:
+  - row-level print on `phieu thu`, `phieu chi`, `ban hang`, `tra hang` now attempts to fetch the real detail endpoint first instead of printing only the list-row payload
+  - if the detail fetch fails, the UI still falls back to printing the current row data instead of blocking the user
+- Resource detail drawer now supports print actions:
+  - printable voucher screens show an `In chung tu` action inside the drawer header
+  - drawer print reuses the already loaded detail payload when available, so document output is richer than the table snapshot
+- Shared frontend metadata was extracted for resource detail/print behavior:
+  - detail endpoint config is now centralized instead of being duplicated only inside the drawer implementation
+  - resource print profile and label/entry mapping are now reusable for future printable modules
+- Voucher print layouts are no longer one generic grid only:
+  - `phieu thu` now prints as a receipt-style document with dedicated blocks for:
+    - thong tin nguoi nop
+    - thong tin thu tien
+    - ghi chu
+  - `phieu chi` now prints as an expense-style document with dedicated blocks for:
+    - thong tin doi tuong nhan
+    - thong tin phe duyet
+    - ghi chu
+  - `ban hang` now prints as a sale-style document with dedicated blocks for:
+    - thong tin khach mua
+    - thong tin ban hang
+    - ghi chu ban hang
+  - `tra hang` now prints as a return/refund-style document with dedicated blocks for:
+    - thong tin doi tuong
+    - thong tin xu ly
+    - ly do / ghi chu
+- Each printable voucher layout now has:
+  - a distinct hero area for code, date, status and highlighted amount
+  - profile-specific signature captions instead of one generic caption set for every document type
+  - shared template header/footer support preserved from the previous pass
+
+### Pro Shop Sales / Returns Deepening
+
+- Added structured product lines for Pro Shop transactions:
+  - `PaymentReceipt.lineItems`
+  - `PaymentExpense.lineItems`
+- Applied Prisma migration:
+  - [20260402083600_shop_line_items](c:\xampp\htdocs\GYM\prisma\migrations\20260402083600_shop_line_items\migration.sql)
+- Backend now has dedicated Pro Shop resource endpoints instead of forcing `ban hang` / `tra hang` through generic cashbook screens:
+  - `GET|POST /shop-sales`
+  - `GET|PATCH|DELETE /shop-sales/:id`
+  - `GET|POST /shop-returns`
+  - `GET|PATCH|DELETE /shop-returns/:id`
+- Shop-sale / shop-return payloads are richer now:
+  - `lineItems`
+  - `lineItemsText`
+  - `itemCount`
+  - `totalQuantity`
+  - `productSummary`
+  - user-friendly labels such as `sourceLabel` / `expenseLabel`
+- Inventory stock now syncs with Pro Shop voucher lifecycle:
+  - completed `shop-sales` decrement product stock
+  - completed `shop-returns` increment product stock
+  - update/delete reverses and reapplies stock correctly inside DB transactions
+- Generic cashbook resources no longer duplicate Pro Shop transactions:
+  - `/receipts` excludes `PRO_SHOP_SALE`
+  - `/expenses` excludes `PRO_SHOP_RETURN`
+- Seed/demo data is richer now:
+  - added `SALE0001` with real line items
+  - added `RET0001` with real return line items
+  - adjusted seeded stock to match those demo transactions
+- Pro Shop UI is now mapped to dedicated resources instead of borrowing generic receipt/expense modules:
+  - `pro-shop/sales` uses `shop-sales`
+  - `pro-shop/returns` uses `shop-returns`
+  - forms now support line-item entry using `MA_SP | SO_LUONG | DON_GIA | GHI_CHU`
+  - tables, drawers and print layouts show product summary, quantity and detailed line-item sections
+- Pro Shop create/edit UX is deeper now:
+  - `lineItemsText` manual textarea has been replaced by a product-line picker/grid in the shared form dialog
+  - users can add/remove rows, choose products by branch, edit quantity/unit price/note and see line totals immediately
+  - the form still serializes back to `lineItemsText` so backend/API contracts stay unchanged
+  - sale flow now shows quick stock context and warns when entered quantity exceeds current stock
+  - form footer shows provisional total so users can leave `Tong tien` blank and trust backend auto-calculation
+- Backend DTOs now match the intended UI flow:
+  - Pro Shop create/update can auto-calculate `amount` when the field is left blank
+  - shop-return DTO no longer requires a fake `expenseType` from the frontend because the service assigns `PRO_SHOP_RETURN` itself
+
+### Operation Resource Detail Deepening
+
+- Continued the "remaining operation resources still feel thin" pass by deepening:
+  - `services`
+  - `service-packages`
+  - `trainers`
+  - `training-sessions`
+  - `products`
+  - `suppliers`
+  - `purchase-orders`
+- Backend now has real detail endpoints for those operation resources instead of relying only on list/create/update/delete payloads:
+  - `GET /services/:id`
+  - `GET /service-packages/:id`
+  - `GET /trainers/:id`
+  - `GET /training-sessions/:id`
+  - `GET /products/:id`
+  - `GET /suppliers/:id`
+  - `GET /purchase-orders/:id`
+- Backend list/detail payloads for those resources are richer and more UI-oriented now:
+  - service payloads now expose:
+    - `branchName`
+    - `packageCount`
+    - `activePackageCount`
+    - `contractItemCount`
+    - related `packages`
+  - service-package payloads now expose:
+    - `branchName`
+    - `serviceName`
+    - `serviceCategory`
+    - `totalSessions`
+    - `sessionLabel`
+    - `contractCount`
+    - related `contracts`
+  - trainer payloads now expose:
+    - `branchName`
+    - `contractCount`
+    - `activeContractCount`
+    - `trainingSessionCount`
+    - `upcomingSessionCount`
+    - `completedSessionCount`
+    - `nextSessionDateTime`
+    - related `contracts`
+    - related `trainingSessions`
+  - training-session payloads now expose:
+    - `branchName`
+    - `customerName`
+    - `customerPhone`
+    - `trainerName`
+    - `contractCode`
+    - `contractPackageName`
+    - `attendanceCount`
+    - related `attendance`
+  - product payloads now expose:
+    - `branchName`
+    - `categoryName`
+    - `stockAlertLabel`
+    - `stockValue`
+    - `purchaseItemCount`
+    - `purchaseOrderCount`
+    - `lastPurchaseDate`
+    - `recentPurchaseItems`
+  - supplier payloads now expose:
+    - `branchName`
+    - `purchaseOrderCount`
+    - `completedPurchaseOrderCount`
+    - `totalPurchaseAmount`
+    - `lastOrderDate`
+    - related `purchaseOrders`
+  - purchase-order payloads now expose:
+    - `branchName`
+    - `supplierName`
+    - `supplierContactName`
+    - `supplierPhone`
+    - `createdUserName`
+    - `itemCount`
+    - `totalQuantity`
+    - `productSummary`
+    - related `items`
+- Purchase-order inventory effect is deeper now:
+  - completed purchase orders still increase stock on create
+  - update now reverses old completed quantities and reapplies new ones inside the same DB transaction
+  - delete now reverses completed stock impact before soft-delete so inventory is restored cleanly
+  - added branch-scoped validation so selected supplier/products must belong to the same branch as the purchase order
+- Operation resource UI is deeper now:
+  - resource detail drawer now has real summary cards/tabs for the deepened operation resources instead of falling back to thin list-row data
+  - service detail now shows package catalog and usage context
+  - service-package detail now shows parent service info and related contracts
+  - trainer detail now shows workload, contract list and scheduled sessions
+  - training-session detail now shows participants plus attendance rows
+  - product detail now shows stock context plus recent purchase history
+  - supplier detail now shows purchase totals and order history
+  - purchase-order detail now shows supplier context and item lines
+- Resource metadata / tables are also richer now:
+  - operation resource tables gained more business-facing columns
+  - status filters were added where backend filtering already existed
+  - training-session and purchase-order status options now match the backend enum coverage better
+
+### Purchase Order Item-Grid UX
+
+- Continued the next Pro Shop / inventory UX pass by deepening `purchase-orders` create/edit flow.
+- Purchase-order form no longer depends only on header-level fields plus manual backend inference:
+  - added a dedicated product item-grid inside the shared form dialog
+  - users can add/remove rows, choose products by branch, edit quantity and purchase price, and see line totals immediately
+  - grid now shows quick product context such as:
+    - product code
+    - unit
+    - current stock
+    - default purchase price
+- Form payload now serializes the item grid directly into real `items[]` request data for the API instead of leaving purchase-order item entry as an unstructured gap in the UI.
+- Supplier select in purchase-order form is now branch-aware when a branch is chosen, so the dropdown stops mixing suppliers from unrelated branches.
+- Form dialog now supports a dedicated custom field type for purchase-order item arrays, so this pattern can be reused for other inventory forms later if needed.
+
+### Settings Core Actions
+
+- Continued the next settings/admin pass by turning a few previously passive resources into actionable screens.
+- User maintenance is deeper now:
+  - user detail drawer now has a dedicated reset-password action instead of stopping at view/edit/delete only
+  - reset-password UI now uses a dedicated modal with password + confirm-password inputs
+  - backend `POST /users/:id/reset-password` is now safer:
+    - branch scope is enforced before resetting another user
+    - deleted / missing users are rejected cleanly
+    - the endpoint no longer returns the raw user row after reset
+- Attendance-machine maintenance is deeper now:
+  - added dedicated backend action endpoint `POST /attendance-machines/:id/maintenance`
+  - supported maintenance actions now include:
+    - `TOGGLE_SYNC`
+    - `START_SYNC`
+    - `FINISH_SYNC`
+    - `MARK_CONNECTED`
+    - `MARK_DISCONNECTED`
+    - `MARK_ERROR`
+  - attendance-machine detail drawer now exposes a real maintenance tab with one-click operational actions instead of requiring generic edit-only workarounds
+- Branch detail UX is richer now:
+  - branch `Van hanh` tab now renders a real logo preview card when `logoUrl` exists
+  - the preview has an external open-link action plus a fallback empty/error state instead of only echoing the raw URL text
+
+### GYM.docx Density Alignment
+
+- Continued the next UI-alignment pass by reading screenshot-heavy references from `GYM.docx` and tightening the portal density toward the older Gymmaster-style admin screens.
+- Portal shell / navigation is denser now:
+  - reduced global radius, shadows, paddings, and default control heights in shared CSS
+  - tightened top navbar, horizontal menu strip, and page container spacing
+  - menu dropdowns and top-right utility blocks now use smaller chips and less decorative spacing
+- Listing screens are denser now:
+  - resource workspace action bar now uses a narrower search box, smaller record counter, and a tighter filter/content split
+  - filter sidebar width was reduced again and its header/controls were compacted
+  - shared data tables now use smaller header/body padding, denser action buttons, and a more report-like compact text rhythm
+  - column selector chips were reduced so wide tables preserve more horizontal space for actual data
+- Detail / modal screens are denser now:
+  - detail drawer is wider but internally more compact, so summary cards, tabs, and overview fields show more business data at once
+  - shared form dialog, confirm dialog, and reset-password dialog now use smaller paddings and tighter field spacing
+  - resource detail helper cards/tables and logo-preview card were compacted to match the new drawer density
+- Report screens were aligned too:
+  - report snapshot cards, KPI cards, empty states, and report result tables now follow the same compact spacing system instead of keeping a looser modern-card layout
+
+### GYM.docx Label Alignment
+
+- Continued the next terminology-alignment pass against `GYM.docx`, this time focusing on replacing generic copy like `Search...`, `Create`, and `Filters` on high-frequency portal screens.
+- Shared search / filter primitives are more context-aware now:
+  - `SearchBar` now accepts module-specific placeholders instead of forcing one generic search hint for every page
+  - `FilterSidebar` now accepts contextual titles/subtitles so report and dashboard filters read like business conditions instead of generic admin UI labels
+- Resource screens now carry more legacy-style wording:
+  - customers, leads, contracts, receipts, expenses, Pro Shop, services, PT, products, suppliers, and purchase-orders now use page-specific search hints
+  - transaction-heavy screens now use verbs closer to old admin flow, such as `Lap phieu`, `Lap giao dich`, and `Lap phieu nhap`, instead of one generic create label everywhere
+- Report / settings screens were aligned too:
+  - report workspace filter sidebar now reads `Dieu kien bao cao`
+  - dashboard filter sidebar now reads `Dieu kien tong quan`
+  - report-template and birthday-template settings now use report/template-specific search hints instead of the portal-wide default placeholder
+- Shared i18n exact-text coverage was extended again:
+  - updated Vietnamese labels for `Create`, `Filters`, `Quick refine`, `Search...`, `Analytics`, `Snapshot`, `Results`, and `Setting scope`
+  - added exact-text coverage for the new search placeholders and transactional create verbs so the runtime shows fully accented Vietnamese instead of raw ASCII source keys
+
+### GYM.docx Runtime QA
+
+- Continued the next runtime wording pass after the generic-label cleanup, focusing on the two remaining screens that still felt the most "new UI": dashboard and report-template management.
+- Dashboard wording is closer to old admin terminology now:
+  - default page title was tightened from a generic `Dashboard tong quan` style to `Tong quan he thong`
+  - chart section badges now use more business-facing labels such as `Doanh thu`, `Hoi vien moi`, `Nguon lead`, `Can xu ly`, `Ban hang`, `Co cau`, and `Nhat ky he thong`
+- Report-template management reads more like a back-office setup screen now:
+  - top stat cards and section headers were renamed to phrases such as `So bao cao`, `Bao cao da chinh`, `Pham vi dang chinh`, `Danh sach bao cao`, `Mau chung`, and `Cau hinh rieng`
+  - shared/custom-template states were aligned to `Dang dung mau chung`, `Dang dung mau rieng`, and `Tra ve mau chung`
+  - preview-specific wording was tightened to `Bien du lieu`, `Ban in xem truoc`, `In thu mau`, and `Mau hien thi`
+  - removed the stray `override` wording in helper copy and replaced it with plain Vietnamese (`ke thua` / `chinh rieng`)
+- Birthday-template listing was cleaned up too:
+  - the empty state now goes through shared translation keys instead of rendering raw ASCII fallback strings
+
+### GYM.docx Detail-Surface Labels
+
+- Continued the next terminology cleanup pass on high-frequency detail surfaces, focusing on form dialogs, detail drawers, and audit/history naming.
+- Shared dialog / drawer chrome is more business-facing now:
+  - the form dialog eyebrow is no longer a generic `Form Dialog`; it now switches between `Them moi du lieu` and `Cap nhat du lieu`
+  - the detail drawer eyebrow now reads `Ho so chi tiet` instead of a generic `Detail`
+- Resource detail tabs were aligned further:
+  - the customer drawer tab `Timeline` was renamed to `Lich su`
+  - the shared audit tab label was renamed from `Audit log` to `Nhat ky thao tac`
+- Registry/page naming was tightened too:
+  - the `audit-logs` resource title now reads `Lich su thao tac`
+  - the root dashboard page definition now matches the newer runtime wording with `Tong quan he thong`
+- Shared i18n exact-text coverage was extended for these surfaces so the new dialog/drawer labels render consistently across locales and no longer rely on fallback phrase repair
+
+### Gymmaster Reference Module Deepening
+
+- Logged into the live Gymmaster reference system (`https://gymmaster.nextx.vn`) in read-only mode and extracted the actual top-menu/module wording for `Nghiep vu`, `Lich PT`, `Lich lop`, and `Thiet lap` to guide the next deepening pass.
+- Resource cloning is deeper now:
+  - `ResourceDefinition` supports `defaultFilters`
+  - `cloneResourceDefinition(...)` now accepts page-level overrides for `columns`, `filters`, `detailFields`, `searchPlaceholder`, and `createLabel`
+  - `resource-workspace` now merges hidden/default page filters with user-selected filters instead of treating every clone as the exact same generic list
+- Filter sidebar is deeper now:
+  - resource filters now support `optionsEndpoint`, `optionLabelKey`, and `optionValueKey`
+  - branch-aware filters on cloned modules now load real options instead of rendering a dead `All` dropdown
+- Backend query support was deepened for Gymmaster-style module clones:
+  - `GET /contracts` now supports `expiring=true` and applies the date range to `endDate` for renewal-style views
+  - contract search now also matches sale user and trainer names
+  - `GET /services` now supports `category`
+  - `GET /service-packages` now supports `packageType` and search by service name
+  - `GET /training-sessions` search now also matches trainer, contract code, and location
+  - training-session list/detail payloads now expose `attachmentCount`
+- Portal page clones for the Gymmaster reference areas were deepened substantially:
+  - `operations/service-price-book`
+  - `operations/service-registration`
+  - `operations/contracts`
+  - `operations/contract-renewal`
+  - `operations/contract-upgrade`
+  - `operations/contract-freeze`
+  - `operations/contract-transfer`
+  - `operations/branch-transfer`
+  - `operations/contract-cancel`
+  - `operations/contract-conversion`
+  - `pt-schedule/calendar`
+  - `pt-schedule/penalty-history`
+  - `class-schedule/bookings`
+  - `class-schedule/classes`
+  - `class-schedule/timetable`
+  - `class-schedule/group-pt`
+  - `class-schedule/line-categories`
+  - `class-schedule/line-schedule`
+  - `class-schedule/line-layout`
+  - `class-schedule/booking-attachments`
+- These clones now differ meaningfully from their base resource screens through:
+  - module-specific column sets
+  - module-specific filter sets
+  - hidden/default filters for lifecycle views such as renewal / freeze / cancel / penalty
+  - booking-focused detail fields including attendance and attachment counts
+- Seed/reference data was updated again for this pass:
+  - added a real `training_session` attachment for seeded booking `TS0001` so `Dinh kem Booking` has live runtime data to validate against
+
+### Clone Coverage Completion
+
+- Finished the follow-up Gymmaster pass so every remaining cloned resource page now has its own override instead of silently falling back to the generic base screen.
+- The remaining cloned screens that were still thin are now deepened too:
+  - `members/customers`
+  - `members/leads`
+  - `members/status`
+  - `members/customer-groups`
+  - `members/customer-sources`
+  - `operations/lockers`
+  - `operations/towels`
+  - `operations/loyalty`
+  - `staff/users`
+  - `staff/exercise-library`
+  - `staff/stages`
+  - `staff/programs`
+  - `staff/attendance-adjustments`
+  - `cashbook/receipts`
+  - `cashbook/expenses`
+  - `pro-shop/products`
+  - `pro-shop/partners`
+  - `pro-shop/price-book`
+  - `pro-shop/sales`
+  - `pro-shop/returns`
+  - `pro-shop/purchase-orders`
+  - `settings/users`
+  - `settings/branches`
+  - `settings/audit-logs`
+  - `settings/attendance-machines`
+- These pages now have purpose-built:
+  - column sets
+  - filter sets
+  - detail-field layouts
+  - default lifecycle filters where that makes operational sense (`operations/loyalty` now opens in active-member mode)
+- Detail coverage was also completed for the previously underwired resources:
+  - added real detail endpoints for `customer-groups`, `customer-sources`, `lockers`, `deposits`, and `audit-logs`
+  - added matching web `resource-meta` so detail drawers can fetch them directly instead of degrading to list-only behavior
+- Finance list/detail payloads for `lockers` and `deposits` were enriched so those screens now expose operational display fields such as:
+  - `branchName`
+  - `currentCustomerName`
+  - `rentalCount`
+  - `activeRentalCount`
+  - `customerName`
+  - `lockerRentalCode`
+
+## Files Changed Recently
+
+- [scripts/role-create-dialog-crawl.mjs](c:\xampp\htdocs\GYM\scripts\role-create-dialog-crawl.mjs)
+- [apps/api/package.json](c:\xampp\htdocs\GYM\apps\api\package.json)
+- [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+- [apps/web/lib/i18n/portal.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\portal.ts)
+- [apps/web/components/layout/app-layout.tsx](c:\xampp\htdocs\GYM\apps\web\components\layout\app-layout.tsx)
+- [apps/web/components/layout/sidebar-menu.tsx](c:\xampp\htdocs\GYM\apps\web\components\layout\sidebar-menu.tsx)
+- [apps/web/components/layout/top-navbar.tsx](c:\xampp\htdocs\GYM\apps\web\components\layout\top-navbar.tsx)
+- [apps/web/components/layout/page-header.tsx](c:\xampp\htdocs\GYM\apps\web\components\layout\page-header.tsx)
+- [apps/web/components/filters/filter-sidebar.tsx](c:\xampp\htdocs\GYM\apps\web\components\filters\filter-sidebar.tsx)
+- [apps/web/components/filters/date-range-filter.tsx](c:\xampp\htdocs\GYM\apps\web\components\filters\date-range-filter.tsx)
+- [apps/web/components/forms/form-dialog.tsx](c:\xampp\htdocs\GYM\apps\web\components\forms\form-dialog.tsx)
+- [apps/web/components/forms/purchase-order-items-field.tsx](c:\xampp\htdocs\GYM\apps\web\components\forms\purchase-order-items-field.tsx)
+- [apps/web/components/table/search-bar.tsx](c:\xampp\htdocs\GYM\apps\web\components\table\search-bar.tsx)
+- [apps/web/components/table/smart-data-table.tsx](c:\xampp\htdocs\GYM\apps\web\components\table\smart-data-table.tsx)
+- [apps/web/components/table/column-selector.tsx](c:\xampp\htdocs\GYM\apps\web\components\table\column-selector.tsx)
+- [apps/web/components/shared/status-badge.tsx](c:\xampp\htdocs\GYM\apps\web\components\shared\status-badge.tsx)
+- [apps/web/components/shared/detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\shared\detail-drawer.tsx)
+- [apps/web/components/shared/confirm-dialog.tsx](c:\xampp\htdocs\GYM\apps\web\components\shared\confirm-dialog.tsx)
+- [apps/web/components/portal/dashboard-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\dashboard-workspace.tsx)
+- [apps/web/components/dashboard/kpi-stat-card.tsx](c:\xampp\htdocs\GYM\apps\web\components\dashboard\kpi-stat-card.tsx)
+- [apps/web/components/feedback/empty-state.tsx](c:\xampp\htdocs\GYM\apps\web\components\feedback\empty-state.tsx)
+- [apps/web/components/portal/report-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-workspace.tsx)
+- [apps/web/components/portal/report-template-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-template-workspace.tsx)
+- [apps/web/components/portal/reset-password-dialog.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\reset-password-dialog.tsx)
+- [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+- [apps/web/components/portal/resource-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-workspace.tsx)
+- [apps/web/components/portal/settings-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\settings-workspace.tsx)
+- [apps/web/components/shared/detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\shared\detail-drawer.tsx)
+- [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+- [apps/web/lib/print.ts](c:\xampp\htdocs\GYM\apps\web\lib\print.ts)
+- [apps/web/lib/resource-meta.ts](c:\xampp\htdocs\GYM\apps\web\lib\resource-meta.ts)
+- [apps/web/types/portal.ts](c:\xampp\htdocs\GYM\apps\web\types\portal.ts)
+- [apps/web/app/globals.css](c:\xampp\htdocs\GYM\apps\web\app\globals.css)
+- [apps/web/app/(portal)/[[...slug]]/page.tsx](c:\xampp\htdocs\GYM\apps\web\app(portal)\[[...slug]]\page.tsx)
+- [apps/api/src/modules/reports/reports.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\reports\reports.controller.ts)
+- [apps/api/src/modules/reports/reports.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\reports\reports.service.ts)
+- [apps/api/src/modules/crm/crm.dto.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\crm\crm.dto.ts)
+- [apps/api/src/modules/crm/crm.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\crm\crm.controller.ts)
+- [apps/api/src/modules/crm/crm.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\crm\crm.service.ts)
+- [apps/api/src/modules/audit-logs/audit-logs.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\audit-logs\audit-logs.controller.ts)
+- [apps/api/src/modules/audit-logs/audit-logs.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\audit-logs\audit-logs.service.ts)
+- [apps/api/src/common/dto/query.dto.ts](c:\xampp\htdocs\GYM\apps\api\src\common\dto\query.dto.ts)
+- [apps/api/src/modules/membership/membership.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\membership\membership.controller.ts)
+- [apps/api/src/modules/membership/membership.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\membership\membership.service.ts)
+- [apps/api/src/modules/inventory/inventory.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\inventory\inventory.controller.ts)
+- [apps/api/src/modules/inventory/inventory.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\inventory\inventory.service.ts)
+- [apps/api/src/modules/finance/finance.dto.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\finance\finance.dto.ts)
+- [apps/api/src/modules/finance/finance.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\finance\finance.controller.ts)
+- [apps/api/src/modules/finance/finance.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\finance\finance.service.ts)
+- [apps/api/src/modules/settings/settings.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\settings\settings.controller.ts)
+- [apps/api/src/modules/settings/settings.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\settings\settings.service.ts)
+- [apps/api/src/modules/system/system.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\system\system.controller.ts)
+- [apps/api/src/modules/system/system.dto.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\system\system.dto.ts)
+- [apps/api/src/modules/system/system.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\system\system.service.ts)
+- [prisma/migrations/20260401204500_staff_attendance_events/migration.sql](c:\xampp\htdocs\GYM\prisma\migrations\20260401204500_staff_attendance_events\migration.sql)
+- [prisma/migrations/20260402083600_shop_line_items/migration.sql](c:\xampp\htdocs\GYM\prisma\migrations\20260402083600_shop_line_items\migration.sql)
+- [docs/api-spec.md](c:\xampp\htdocs\GYM\docs\api-spec.md)
+- [prisma/schema.prisma](c:\xampp\htdocs\GYM\prisma\schema.prisma)
+- [prisma/seed.ts](c:\xampp\htdocs\GYM\prisma\seed.ts)
+
+## Verified
+
+- `npm run db:seed` passed after the reference-data expansion pass
+- `npm run build:web` passed
+- `npm run build:api` passed
+- `npm run build:api` passed after the accountant/trainer lookup hardening pass
+- Prisma migration `20260401204500_staff_attendance_events` applied successfully
+- `npm run db:seed` passed
+- API and Web both restarted and listening
+- Verified live API payloads after this report pass:
+  - `/reports/checkin`
+  - `/reports/debt`
+  - `/reports/lead-status`
+  - `/reports/branch-summary`
+  - `/reports/sales-summary`
+  - `/reports/package-progress`
+- Verified live API payloads after this lead/contract/finance deepening pass:
+  - `/lead-sources`
+  - `/payment-methods`
+  - `/leads`
+  - `/contracts`
+  - `/receipts`
+  - `/receipts/:id`
+  - `/expenses`
+  - `/expenses/:id`
+- Verified live API payloads after this settings deepening pass:
+  - `/settings/company`
+  - `/settings/bank`
+  - `/settings/code-generation`
+  - `/settings/loyalty-points`
+  - `/settings/tags`
+  - `/settings/sms`
+  - `/settings/email`
+  - `/settings/zalo`
+- Verified live API payloads after this staff attendance pass:
+  - `/reports/staff-attendance`
+- Verified live API payloads after this attendance operations pass:
+  - `/staff-attendance-events`
+  - `/staff-attendance-events/:id`
+  - `/audit-logs?entityType=staff_attendance_event&entityId=:id`
+- Verified live PATCH round-trip for:
+  - `/settings/code-generation`
+- `npm run build:web` passed after this settings-core deepening pass
+- `npm run build:api` passed after this settings-core deepening pass
+- `npm run build:web` passed after this printing/template pass
+- `npm run build:api` passed after this printing/template pass
+- `npm run build:web` passed after this detail-print refinement pass
+- `npm run build:api` passed after this detail-print refinement pass
+- `npm run build:web` passed after this specialized voucher-print layout pass
+- `npm run build:api` passed after this Pro Shop line-item pass
+- `npm run build:web` passed after this Pro Shop line-item pass
+- `npm run build:web` passed after this Pro Shop line-item picker pass
+- `npm run build:web` passed after this role/permission UX pass
+- `npm run build:web` passed after this role feature-selector pass
+- `npm run build:api` passed after this detailed report-permission pass
+- `npm run build:web` passed after this detailed report-permission pass
+- `npm run build:api` passed after this report-template manager pass
+- `npm run build:web` passed after this report-template manager pass
+- `npm run build:api` passed after this operation-resource detail deepening pass
+- `npm run build:web` passed after this operation-resource detail deepening pass
+- `npm run build:api` passed after this purchase-order item-grid UX pass
+- `npm run build:web` passed after this purchase-order item-grid UX pass
+- `npm run build:api` passed after this settings-core actions pass
+- `npm run build:web` passed after this settings-core actions pass
+- `npm run build:web` passed after this GYM.docx density-alignment pass
+- `npm run build:web` passed after this GYM.docx label-alignment pass
+- `npm run build:web` passed after this GYM.docx runtime-QA wording pass
+- `npm run build:web` passed after this GYM.docx detail-surface label pass
+- `npm run db:generate` passed after adding `lineItems`
+- `npm run db:seed` passed after adding Pro Shop demo transactions
+- `GET http://localhost:3001/docs` returned `200`
+- `GET http://localhost:3001/api/auth/databases` returned `200`
+- `GET http://localhost:3001/api/auth/otp-config` returned `200`
+- `POST http://localhost:3001/api/auth/login` returned `200`
+- Verified runtime after this detailed report-permission pass:
+  - `GET http://localhost:3001/docs` returned `200`
+  - `POST http://localhost:3001/api/auth/login` returned `200`
+  - `GET http://localhost:3001/api/auth/me` returned detailed report permissions including `reports-debt.view`
+  - `GET http://localhost:3001/api/permissions` returned 21 detailed `reports-*` permission records
+  - `GET http://localhost:3001/api/reports/debt` returned `200` with admin token after the permission upgrade
+- Verified live API payloads after this Pro Shop pass:
+  - `/shop-sales`
+  - `/shop-sales/:id`
+  - `/shop-returns`
+  - `/shop-returns/:id`
+- Verified live API payloads after this operation-resource detail pass:
+  - `/services/:id`
+  - `/service-packages/:id`
+  - `/trainers/:id`
+  - `/training-sessions/:id`
+  - `/products/:id`
+  - `/suppliers/:id`
+  - `/purchase-orders/:id`
+- Verified runtime action flow after this settings-core actions pass:
+  - `POST /users/:id/reset-password` returned `success: true` for the seeded `sales@fitflow.local` user while keeping the password at `Admin@123`
+  - `POST /attendance-machines/:id/maintenance` toggled one machine `syncEnabled` from `true -> false -> true`
+- Verified runtime create/delete flow after this Pro Shop pass:
+  - created a temporary completed `shop-sale`, stock for `P002` moved `41 -> 40 -> 41`
+  - created a temporary completed `shop-return`, stock for `P002` moved `41 -> 42 -> 41`
+  - created a temporary `shop-sale` without sending `amount`, backend auto-calculated `120000`
+  - created a temporary `shop-return` without sending `amount` or `expenseType`, backend auto-calculated `120000` and still labeled it `Tra hang Pro Shop`
+  - generic `/receipts` did not include `SALE0001`
+  - generic `/expenses` did not include `RET0001`
+- Verified runtime create/update/delete flow after this purchase-order stock sync pass:
+  - created a temporary completed purchase order for `P002`, stock moved `41 -> 42`
+  - updated the same purchase order from quantity `1 -> 2`, stock moved `42 -> 43`
+  - deleted the temporary purchase order, stock returned `43 -> 41`
+- Verified runtime after this Gymmaster-reference module deepening pass:
+  - `npm run build:web` passed
+  - `npm run build:api` passed
+  - `npm run db:seed` passed after adding a seeded `training_session` attachment
+  - `GET /contracts?expiring=true&status=ACTIVE` returned `4` rows
+  - `GET /services?category=class` returned the seeded `YOGA` service
+  - `GET /service-packages?packageType=pt` returned the seeded `PT-12` / `PT-24` packages
+  - `GET /training-sessions?search=TS0001` returned `attachmentCount=1` and `attendanceCount=1`
+  - `GET /attachments?entityType=training_session` returned the seeded `ts0001-training-note.pdf`
+  - a runtime `PATCH /training-sessions/:id` verification created a real `audit_logs` row, and `GET /audit-logs?entityType=training_session` then returned `1` matching record
+- Verified runtime after this clone-coverage completion pass:
+  - `npm run build:web` passed
+  - `npm run build:api` passed
+  - no remaining cloned resource page keys were left without a `resourcePageOverrides` entry
+  - `GET /customer-groups/:id` returned the seeded `VIP` group
+  - `GET /customer-sources/:id` returned the seeded `FACEBOOK` source
+  - `GET /audit-logs/:id` returned a real latest `auth | LOGIN | user` row
+  - created a temporary locker `LOCK-QA-0403`, `GET /lockers/:id` returned `LOCK-QA-0403 | FitFlow East | EMPTY`, then deleted it again
+  - created a temporary deposit `DEP-QA-0403`, `GET /deposits/:id` returned `DEP-QA-0403 | FitFlow East | Nguyen Thi Anh | HOLDING`, then deleted it again
+- Report template management was deepened after this pass:
+  - `/settings/report-templates` now lists the built-in report catalog instead of only showing one generic form
+  - each report can store its own title, subtitle, header, footer, paper size, orientation, and per-report visibility toggles
+  - printing from real report screens now reads branch-scoped report template settings and applies per-report overrides
+- I18n/locale stabilization was deepened after this pass:
+  - added centralized mojibake repair + UTF-8 normalization in the web i18n runtime so broken locale strings and API payload text are repaired before rendering
+  - hardened translation output paths so exact text, enum/status labels, pattern-based labels, permission labels, and master-data display all pass through the same normalization layer
+  - expanded exact translation coverage for the menu/report/resource/settings catalog to stop mixed `vi/en/ko` sentences on dashboard, report, PT schedule, and setup screens
+  - verified localized catalog outputs for `vi`, `en`, and `ko` with an automated audit against menu/report/resource/settings definitions; no mojibake or Vietnamese leakage remained in the audited definitions
+  - restarted the web server on `6173` after the i18n stabilization pass and confirmed `http://localhost:6173` returned `200` with `<html lang=\"vi\">`
+- Navigation i18n audit was deepened again after this pass:
+  - audited top navigation dropdown labels and descriptions for `vi/en/ko`, focusing on the `members`, `operations`, `pt schedule`, `class schedule`, and `settings` groups shown in runtime screenshots
+  - added exact translation coverage for the leaking navigation/menu phrases so labels such as `Tong quan`, `Dang ky dich vu`, `Dang ky HD Loyalty`, `Danh sach book lich`, `Lich PT nhom`, `Danh muc Line`, `Quan ly mau in`, `Quan ly mau bao cao`, `Quan ly tich diem`, and `Thiet lap Penalty` no longer fall back to mixed phrase translation
+  - added exact translation coverage for the remaining leaked report/setting summary strings such as `Co lich hen`, `Luot dang ky`, `Phan bo hoi vien, PT, hop dong, tu do va lich tap theo tung chi nhanh.`, `Tien to ma va quy tac dem so cho hoi vien, hop dong, thu chi va san pham.`, and `Quy tac lam tron so tien, thue va so chu so hien thi.`
+  - reran an automated audit across `MENU / RESOURCE / REPORT / SETTING` strings for `en` and `ko`; the audit returned `0` remaining mojibake/raw-Vietnamese leaks in those definition catalogs
+  - rebuilt and restarted web `6173` after the navigation-i18n cleanup pass
+- Vietnamese exact-text cleanup was deepened again after this pass:
+  - audited the real runtime definition catalogs for `MENU / RESOURCE / REPORT / SETTING` in `vi`, this time treating ASCII Vietnamese source strings without diacritics as failures instead of only checking `en/ko`
+  - added a dedicated final-layer `vi` exact-text override map so strings like `Danh sach hop dong`, `Nang cap hop dong`, `Chuyen chi nhanh`, `Chuyen doi hop dong`, `Quan ly nguoi dung`, `Thiet lap hoa don dien tu`, `Thiet lap truong du lieu`, and related descriptions can no longer leak through pattern-based translation without Vietnamese diacritics
+  - reran the automated unresolved-source audit against the live localization registry and got `MENU=0`, `RESOURCE=0`, `REPORT=0`, `SETTING=0` for unresolved ASCII-Vietnamese source leaks
+  - rebuilt and restarted web `6173` again after the `vi` exact-text cleanup so the new bundle is the one being served now
+- Attendance-code/data-model cleanup was deepened after this pass:
+  - added dedicated `employeeCode` and `attendanceCode` to `users`, migrated the local PostgreSQL database, and backfilled existing users from `username`
+  - updated user create/update/list/detail payloads so staff records now expose `employeeCode`, `attendanceCode`, and a `staffOptionLabel` for machine-attendance/manual-attendance selection
+  - changed staff attendance events to default `rawCode` from the staff attendance code instead of blindly using `username`, and updated the staff-attendance report to show `employeeCode` as `staffCode`
+  - changed the member/customer form label from `Ma van tay` to `Ma cham cong`, defaulted new members' `fingerprintCode` from `code` when left blank, and allowed customer search by attendance code
+  - rebuilt and restarted both API `6273` and web `6173`, then verified live that `/api/users` returns `employeeCode/attendanceCode`, `/api/customers` returns `fingerprintCode`, and `/api/staff-attendance-events` exposes `staffCode`, `attendanceCode`, and `rawCode` consistently
+- Verified runtime after this non-admin role QA follow-up:
+  - `customer_care` full resource-route crawl: `68` routes scanned, `16` accessible screens, `6` create-capable screens opened, `0` issues
+  - `accountant` focused create-dialog re-crawl after permission fix: `14` targeted routes scanned, `14` create dialogs opened, `0` issues
+  - `trainer` focused create-dialog re-crawl after permission fix: `4` targeted routes scanned, `4` create dialogs opened, `0` issues
+  - live login for `accountant@fitflow.local` now returns lookup permissions:
+    - `branches.view`
+    - `users.view`
+    - `customer-groups.view`
+    - `customer-sources.view`
+    - `service-packages.view`
+    - `trainers.view`
+  - live login for `trainer@fitflow.local` now returns lookup permissions:
+    - `branches.view`
+    - `contracts.view`
+    - `users.view`
+    - `customer-groups.view`
+    - `customer-sources.view`
+  - API prod restart on `6273` works again after fixing `start:prod`
+- GYM.docx wording polish was deepened again after this pass:
+  - refined the settings workspace summary cards so the left sidebar now reads closer to the Gymmaster-style back-office wording: `Địa chỉ API`, `Chi nhánh`, `Trạng thái`, and `Cập nhật lần cuối`
+  - replaced the settings helper note with a clearer business-facing sentence that explains real persistence, audit logging, and branch scope behavior
+  - aligned `Audit log` exact-text localization so the Vietnamese UI consistently shows `Lịch sử thao tác` / `Đối tượng` instead of leaking raw English on menu/filter/setting/audit-table surfaces
+  - updated the shared form-dialog submit button so create flows reuse each module's own action label such as `Lập phiếu` / `Đăng ký mới` where available, instead of always falling back to a generic create caption
+  - normalized loading CTA wording in settings/forms to `Đang lưu...`
+  - `npm run build:web` passed after this settings/dialog wording polish pass
+  - restarted web runtime on `6173` from the fresh production build and confirmed `GET http://localhost:6173` returned `200`
+- GYM.docx wording polish was deepened one more step after this pass:
+  - removed the last raw-English `Save failed` fallback from the shared settings/report-template mutation surfaces so error banners now always go through the locale bundle
+  - normalized audit-log catalog wording in `module-config` to use the Vietnamese business-facing source text consistently for menu description, resource subtitle, settings subtitle, and `entityType=audit_log`
+  - localized permission mini-table headers in the resource detail drawer so role/user permission tabs no longer show raw `Code / Module / Action`
+  - `npm run build:web` passed again after this audit-log/detail wording pass
+  - restarted web runtime on `6173` again and confirmed `GET http://localhost:6173` returned `200`
+- GYM.docx high-traffic screen polish was deepened again after this pass:
+  - `members/customers` list override now shows `Số hồ sơ` directly on the live runtime table, and the member detail overview now includes `profileCount`
+  - `operations/contracts` create/edit dialog now uses `Trạng thái thanh toán` instead of the shortened `TT thanh toán`
+  - `cashbook/receipts` detail drawer now uses the clearer section label `Thông tin thu`
+  - `staff/users` list override now shows both `Tên đăng nhập` and `Đăng nhập cuối`, while the user detail summary uses `Số vai trò`
+  - added exact translation coverage for `Tên đăng nhập`, `Đăng nhập cuối`, `Số hồ sơ`, `Trạng thái thanh toán`, and `Thông tin thu` so these labels stay stable across locale rendering paths
+  - rebuilt web directly from `apps/web` and restarted runtime `6173` from that same app folder to avoid the temporary `next start` / `.next` mismatch seen when using the root `--prefix` flow
+  - Playwright smoke verification passed for all 4 target routes with `0` missing texts / `0` detail errors:
+    - `/members/customers`
+    - `/operations/contracts`
+    - `/cashbook/receipts`
+    - `/staff/users`
+  - smoke screenshots and JSON results were saved under `.tmp/high-traffic-polish-smoke`
+
+- GYM.docx next-wave wording polish was deepened again after this pass:
+  - `members/leads` now uses the clearer page title `Hồ sơ Lead`, while the live table wording was normalized to `Nguồn lead`, `Nhân viên phụ trách`, `Tình trạng follow-up`, and `Mức độ tiềm năng`
+  - `cashbook/expenses` now uses `Người phê duyệt` consistently in the shared resource config, list override, summary cards, and the expense detail tab `Thông tin chi`
+  - `settings/branches` now uses the business-facing wording set `Khung giờ hoạt động`, `Yêu cầu cọc`, `Đặt lịch / cọc`, `Tên đăng nhập`, and `Máy chấm công`; the branch create/edit form labels were also expanded from shorthand to `Giờ mở cửa`, `Giờ đóng cửa`, `Giờ cọc tối đa`, and `Lượt đặt tối đa/ngày`
+  - `settings/users` menu/subtitle wording was fully Vietnamese-ized to `Tài khoản hệ thống, vai trò và đặt lại mật khẩu` / `Tài khoản hệ thống, đặt lại mật khẩu, vai trò và phạm vi chi nhánh`
+  - added exact translation coverage for the new wording set so these labels stay stable across locale rendering paths
+  - rebuilt web directly from `apps/web`, restarted runtime `6173`, and confirmed `GET http://localhost:6173` returned `200`
+  - targeted Playwright smoke verification passed for all 4 target routes with `0` missing texts / `0` detail errors:
+    - `/members/leads`
+    - `/cashbook/expenses`
+    - `/settings/branches`
+    - `/settings/users`
+  - smoke screenshots and JSON results were saved under `.tmp/next-wave-polish-smoke`
+
+- GYM.docx medium-traffic wording polish was deepened again after this pass:
+  - added a reusable smoke verifier at `scripts/portal-polish-smoke.mjs` so medium-traffic wording waves can recheck both the list surface and the detail drawer tabs instead of only the default overview tab
+  - tightened the text-normalization logic inside that smoke verifier so Vietnamese `đ/Đ` is normalized correctly during assertions; this removed false negatives on labels that already render with full diacritics
+  - added exact-text coverage for `So su kien`, `Ma CN`, and `Chi nhanh / So do`, which removed the last ASCII fallbacks still visible on `attendance-machines` and `class-schedule/line-layout`
+  - rebuilt web directly from `apps/web` again after the exact-text update
+  - restarted web runtime on `6173` using the stable direct command `node .\\node_modules\\next\\dist\\bin\\next start --port 6173`, because detached `npm run start` / `npx next start` looked ready in logs on Windows but did not always keep the listener alive
+  - confirmed `GET http://localhost:6173` returned `200` from the live restarted runtime
+  - targeted Playwright smoke verification passed for all 4 target routes with `0` missing texts / `0` detail errors / `0` runtime error routes:
+    - `/members/customer-sources`
+    - `/settings/attendance-machines`
+    - `/roles`
+    - `/class-schedule/line-layout`
+  - smoke screenshots and JSON results were saved under `.tmp/medium-traffic-polish-smoke`
+
+- GYM.docx medium-traffic wording polish was deepened one more step after this pass:
+  - expanded the reusable smoke verifier so it now supports custom output directories and covers another 4 medium-traffic screens:
+    - `/members/customer-groups`
+    - `/operations/lockers`
+    - `/staff/attendance-adjustments`
+    - `/settings/audit-logs`
+  - added domain-aware audit-log localization for `module`, `action`, and `entityType`, so live list/detail surfaces now translate raw values such as `auth`, `contract`, `user`, and `report` into business-facing Vietnamese labels instead of leaking technical codes
+  - added exact-text coverage for the remaining raw field-label leaks on this wave, including locker rental fields, staff attendance identity fields, audit-log field labels, and customer-group timestamps
+  - `members/customer-groups` now uses a cleaner back-office subtitle, summary cards for `MÃ´ táº£ / NgÃ y táº¡o / Cáº­p nháº­t láº§n cuá»‘i`, and no longer leaks raw `CREATED AT / UPDATED AT` labels in the detail drawer
+  - `operations/lockers` now uses the clearer subtitle `Theo dÃµi tÃ¬nh tráº¡ng tá»§ Ä‘á»“, khÃ¡ch Ä‘ang thuÃª, tiá»n cá»c vÃ  lá»‹ch sá»­ sá»­ dá»¥ng.`, the list now shows `NhÃ£n tá»§` and `LÆ°á»£t thuÃª má»Ÿ`, and the detail drawer now has business-facing summary cards plus a `ThÃ´ng tin thuÃª` tab instead of raw locker/rental field names
+  - `staff/attendance-adjustments` now uses the clearer HR-facing subtitle with full punctuation, while the detail drawer overview no longer leaks raw field keys like `STAFF CODE / ATTENDANCE CODE / EVENT DATE TIME / MACHINE NAME`
+  - `settings/audit-logs` now uses the more back-office subtitle `Lá»‹ch sá»­ thao tÃ¡c, Ä‘Äƒng nháº­p, xuáº¥t file vÃ  cáº­p nháº­t cáº¥u hÃ¬nh há»‡ thá»‘ng.`, the list/filter surfaces now use Vietnamese labels for entity options, and the detail drawer now adds dedicated `ThÃ´ng tin audit` and `Dá»¯ liá»‡u thay Ä‘á»•i` tabs
+  - rebuilt web directly from `apps/web`, restarted runtime `6173` again from the stable direct-node flow, and confirmed `GET http://localhost:6173` returned `200`
+  - targeted Playwright smoke verification passed for all 4 target routes with `0` missing texts / `0` detail errors / `0` runtime error routes:
+    - `/members/customer-groups`
+    - `/operations/lockers`
+    - `/staff/attendance-adjustments`
+    - `/settings/audit-logs`
+  - smoke screenshots and JSON results were saved under `.tmp/next-medium-traffic-polish-smoke`
+
+- GYM.docx medium-traffic wording polish was deepened again after this pass:
+  - added a dedicated `deposits-page` override so `/deposits` now shows business-facing list columns for `Khach nop coc`, `Ma thue tu`, `Loai coc`, and the deposit detail overview is trimmed to the fields operators actually need
+  - added deposit-specific enum/display coverage for `itemType`, so live runtime values such as `locker_deposit` now render as business-facing Vietnamese instead of leaking raw codes
+  - normalized the `pro-shop/partners` wave to use `Gia tri nhap`, `Lan nhap gan nhat`, a `Thong tin doi tac` drawer tab, and cleaned raw overview field leaks such as `PHONE / CONTACT NAME / PURCHASE ORDER COUNT`
+  - normalized the `pro-shop/purchase-orders` wave to use the new `Thong tin nhap` drawer tab, cleaner overview fields, and stable Vietnamese labels for supplier/contact/order metadata
+  - normalized the shared `training-sessions` drawer wording so PT booking/detail flows now use `Thong tin buoi tap` instead of the awkward generic `Thanh phan`
+  - tightened exact-text coverage for the remaining raw field-label leaks on this wave, including `item Type`, `locker Rental Code`, `supplier Contact Name`, `scheduled Date Time`, `contract Package Name`, `attachment Count`, and related list/detail labels
+  - rebuilt web directly from `apps/web`, restarted runtime `6173` again from the stable direct-node flow, and confirmed `GET http://localhost:6173` returned `200`
+  - targeted Playwright smoke verification passed for all 4 target routes with `0` missing texts / `0` detail errors / `0` runtime error routes:
+    - `/deposits`
+    - `/pro-shop/partners`
+    - `/pro-shop/purchase-orders`
+    - `/pt-schedule/calendar`
+  - smoke screenshots and JSON results were saved under `.tmp/deposit-proshop-pt-polish-smoke`
+  - this checkpoint was re-saved after the wave completed, so `docs/work-progress.md` remains the latest source of truth for the current workspace state
+
+- Gymmaster-reference report alignment was continued after this pass:
+  - confirmed the live reference host `https://gymmaster.nextx.vn` is still reachable, but the current automation path lands on `2026-04-04` at the login screen (`/auth/login`) instead of an already-authenticated read-only report page
+  - used the existing Gymmaster alignment notes already captured in this workspace plus the live login-wall check to continue the local report pass without guessing against stale screenshots alone
+  - redesigned [apps/web/components/portal/report-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-workspace.tsx) toward a denser Gymmaster-style back-office report layout:
+    - report pages are now table-first instead of chart-first
+    - added a compact report-status sidebar card for data state, print-template state, and row count
+    - added an operational summary strip (`Bao cao nghiep vu`) with active filter chips
+    - converted report KPIs into denser summary blocks instead of larger dashboard-like cards
+    - moved the results table ahead of the chart and added an `STT` index column plus tighter header/body spacing
+    - moved charting into a secondary `Bieu do doi chieu` section so analytics no longer dominate the screen
+    - added a `Thong tin nhanh` note panel for filter scope, export modes, and backend date-range behavior
+  - added report-specific column-label overrides in the report workspace so key report columns such as `customerName`, `branch`, `packageName`, `checkedInSessions`, `remainingSessions`, and `outstandingDebt` no longer fall back to raw English-like labels on live report tables
+  - verification after this report-alignment pass:
+    - `npm run build:web` passed
+    - `npm run build:api` passed
+    - local API runtime restarted successfully on `6273`
+    - local web runtime restarted successfully on `6173`
+    - Playwright smoke verification passed on all 3 target report routes with `0` missing normalized layout texts and `0` login redirects:
+      - `/reports/checkin`
+      - `/reports/debt`
+      - `/reports/branch-summary`
+    - smoke screenshots were saved under `.tmp/report-layout-smoke`
+  - report-template / print-render alignment was deepened again after this pass:
+    - updated [apps/web/lib/print.ts](c:\xampp\htdocs\GYM\apps\web\lib\print.ts) so report printouts now render in a more classic report-sheet form instead of the previous card-heavy preview style
+    - the report print renderer now prefers the real report title/subtitle by default, then per-report overrides, instead of silently falling back to one generic default title for every report
+    - report printouts now use:
+      - centered uppercase report title block
+      - classic report metadata tables for report info and filter conditions
+      - a bordered results table with `STT`
+      - clearer report-specific Vietnamese labels for key columns
+    - staff-attendance report rows now include `attendanceCode` again at the API layer, and the report UI/print label set now exposes it as `Ma cham cong` while keeping `Ma nhan vien`
+    - updated [apps/api/src/modules/reports/reports.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\reports\reports.service.ts) so `/api/reports/staff-attendance` returns both `staffCode` and `attendanceCode`
+    - updated [apps/web/components/portal/report-template-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-template-workspace.tsx) so the template preview uses the selected report's real title/subtitle by default before any global fallback title
+  - verification after this deeper print / attendance-code pass:
+    - `npm run build:api` passed again
+    - `npm run build:web` passed again
+    - live `GET /api/reports/staff-attendance` returned `attendanceCode` together with `staffCode`
+    - Playwright smoke verification passed for `/reports/staff-attendance` with `0` missing normalized texts for `Ma cham cong`, `Ma nhan vien`, `Bao cao nghiep vu`, and `Bang ket qua`
+    - updated smoke screenshot saved under `.tmp/report-layout-smoke/reports_staff-attendance.png`
+
+- `2026-04-04 09:31 Asia/Bangkok`:
+  - continued from the authenticated Gymmaster reference capture using the live tenant credentials and the previously saved screenshots under `.tmp/reference-report-capture`
+  - fully rebuilt [apps/web/components/portal/report-template-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-template-workspace.tsx) into a denser Gymmaster-style report-template manager instead of the earlier mixed old/new workspace state
+  - the report-template page now follows the captured reference more closely:
+    - green bordered manager shell
+    - narrow left filter rail
+    - compact top search/action strip
+    - simple list-first template table
+    - add/edit modal with back-office form layout and right-side print preview
+  - the template editor still preserves the real FitFlow configuration model rather than turning into a dead visual clone:
+    - saves global template defaults and per-report overrides back to `/settings/report-templates`
+    - keeps print preview functional through [apps/web/lib/print.ts](c:\xampp\htdocs\GYM\apps\web\lib\print.ts)
+    - keeps the staff-attendance preview aligned with `Ma cham cong`
+  - verification after this Gymmaster-template refactor:
+    - `npm run build:web` passed
+    - `npm run build:api` passed
+    - local web runtime responded `200` on `http://localhost:6173`
+    - note: a temporary extra local Playwright screenshot pass was attempted for `/settings/report-templates`, but the transient Playwright package in this environment did not expose module resolution cleanly enough to keep that automation path
+
+- `2026-04-04 10:28 Asia/Bangkok`:
+  - completed a dedicated font/render-stability hardening pass focused on Vietnamese text quality and React compiler/lint stability
+  - font/rendering fixes:
+    - updated [apps/web/app/layout.tsx](c:\xampp\htdocs\GYM\apps\web\app\layout.tsx) so the main Google fonts load with `latin-ext` and `display: "swap"` for stable Vietnamese glyph coverage
+    - updated [apps/web/app/globals.css](c:\xampp\htdocs\GYM\apps\web\app\globals.css) with text-rendering / font-smoothing / kerning guards to reduce rough text rendering on Windows
+  - report/text cleanup:
+    - cleaned and normalized Vietnamese report text in [apps/web/components/portal/report-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-workspace.tsx), including search placeholders, report mode labels, table empty-state wording, export labels, pagination wording, and report-specific column labels such as `Mã chấm công`
+    - cleaned and re-accented the Gymmaster-style template editor in [apps/web/components/portal/report-template-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-template-workspace.tsx) so the template manager, preview, modal labels, and print-preview helper texts no longer use stripped ASCII Vietnamese
+  - stability/lint hardening:
+    - refactored [apps/web/components/shared/detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\shared\detail-drawer.tsx) to reset tabs through keyed remounting instead of `setState` inside an effect
+    - refactored [apps/web/components/forms/permission-matrix-field.tsx](c:\xampp\htdocs\GYM\apps\web\components\forms\permission-matrix-field.tsx) to initialize search/source-role/module selection without effect-driven reset loops
+    - refactored [apps/web/components/forms/purchase-order-items-field.tsx](c:\xampp\htdocs\GYM\apps\web\components\forms\purchase-order-items-field.tsx) and [apps/web/components/forms/shop-line-items-field.tsx](c:\xampp\htdocs\GYM\apps\web\components\forms\shop-line-items-field.tsx) so row resets and product-code hydration no longer depend on synchronous `setState` calls inside effects
+    - simplified memoized detail generation in [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx) to remove React compiler memo-preservation errors
+    - hardened [apps/web/components/portal/dashboard-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\dashboard-workspace.tsx) and [apps/web/components/portal/report-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-workspace.tsx) so branch-scoped default filters and pagination resets no longer rely on `setState` inside effects
+  - verification after this font/stability pass:
+    - `npm --prefix apps/web run lint` passed with `0 errors` and `15 warnings`
+    - `npm run build:web` passed
+    - `npm run build:api` passed
+  - note on remaining warnings:
+    - remaining warnings are now mostly legacy/existing hook-dependency or incompatible-library notices around React Hook Form / TanStack Table usage, rather than active runtime errors from this pass
+
+- `2026-04-04 20:28 Asia/Bangkok`:
+  - broadened the reusable non-admin create-dialog crawler to cover the two remaining target roles from the next-pass checklist:
+    - `branch_manager` via `manager@fitflow.local`
+    - `hr` via `hr@fitflow.local`
+  - updated [scripts/role-create-dialog-crawl.mjs](c:\xampp\htdocs\GYM\scripts\role-create-dialog-crawl.mjs) so these roles are part of the default crawler account set instead of requiring manual edits each time
+  - temporarily restarted the local API and web runtimes to execute a real targeted browser pass for `branch_manager,hr`
+  - reran the role crawler with `FITFLOW_ROLE_CODES=branch_manager,hr`; detailed output was saved to:
+    - [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+    - screenshots under [.tmp/qa-role-create-dialog](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog)
+  - targeted role QA results:
+    - `branch_manager`: `68` resource routes scanned, `55` accessible screens, `52` create-capable screens opened, `49` issues
+    - `hr`: `68` resource routes scanned, `10` accessible screens, `10` create-capable screens opened, `3` issues
+  - the new findings are concentrated and actionable rather than random runtime breakage:
+    - `branch_manager` is missing lookup/helper `view` access on common option endpoints used by create dialogs, especially `/branches`, `/users`, `/customer-groups`, and `/customer-sources`
+    - these `403` lookup failures now reproduce consistently across member, contract, cashbook, attendance, and Pro Shop create flows
+    - `hr` is broadly stable for the modules it can access, but user-management create/edit flows still hit `403 GET /api/roles?pageSize=100` on `/users`, `/staff/users`, and `/settings/users`
+  - this pass completed the crawler-expansion checkpoint itself; the next work item is now the permission-fix pass plus a focused rerun rather than "add `branch_manager` / `hr` to the crawler"
+
+- `2026-04-04 21:22 Asia/Bangkok`:
+  - completed the targeted permission-fix pass that was queued by the previous role crawler checkpoint:
+    - updated [apps/api/src/common/constants/bootstrap.constants.ts](c:\xampp\htdocs\GYM\apps\api\src\common\constants\bootstrap.constants.ts) so:
+      - `branch_manager` now also receives lookup/helper `view` grants for `branches`, `users`, `customer-groups`, and `customer-sources`
+      - `hr` now also receives lookup/helper `view` grant for `roles`
+    - updated [prisma/seed.ts](c:\xampp\htdocs\GYM\prisma\seed.ts) so fresh seeds stay aligned with the new lookup grants instead of only runtime-synced databases receiving them
+    - bumped the backend role-permission catalog sync key in [apps/api/src/modules/permissions/permissions.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\permissions\permissions.service.ts) so the current tenant database re-applies the role catalog on login
+  - verification after the permission pass:
+    - `npm run build:api` passed
+    - restarted local API runtime on `6273`
+    - direct login verification confirmed the new permissions are present in auth payloads:
+      - `branch_manager`: `branches.view`, `users.view`, `customer-groups.view`, `customer-sources.view`
+      - `hr`: `roles.view`
+    - reran the role create-dialog crawler with `FITFLOW_ROLE_CODES=branch_manager,hr`; updated output was saved again to:
+      - [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+      - screenshots under [.tmp/qa-role-create-dialog](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog)
+    - targeted crawler results are now clean:
+      - `branch_manager`: `68` resource routes scanned, `65` accessible screens, `52` create-capable screens opened, `0` issues
+      - `hr`: `68` resource routes scanned, `12` accessible screens, `10` create-capable screens opened, `0` issues
+  - continued the next medium-traffic Pro Shop polish wave after the permission rerun:
+    - updated [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx) so Pro Shop sales/returns now use business-facing tabs and summary wording such as `Thong tin ban hang`, `Thong tin tra hang`, `San pham ban`, and `San pham tra`
+    - updated [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts) so Pro Shop sales/returns no longer leak technical overview fields like `lineItemsText` or duplicate raw date fields in the detail drawer
+    - updated [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts) and [apps/web/lib/i18n/display.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\display.ts) so value/field rendering now localizes the remaining Pro Shop raw labels and values such as:
+      - `category Name`, `payment Method Name`, `line Items Text`
+      - `Ton on dinh`
+      - `Tien mat`
+    - expanded [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs) to cover:
+      - `/pro-shop/products`
+      - `/pro-shop/price-book`
+      - `/pro-shop/sales`
+      - `/pro-shop/returns`
+  - verification after this Pro Shop polish wave:
+    - `npm run build:web` passed
+    - restarted local web runtime on `6173` using the stable direct-node start flow
+    - confirmed `GET http://localhost:6173` returned `200`
+    - targeted Playwright smoke verification passed for all 4 Pro Shop routes with `0` missing texts / `0` forbidden raw labels / `0` runtime error routes:
+      - `/pro-shop/products`
+      - `/pro-shop/price-book`
+      - `/pro-shop/sales`
+      - `/pro-shop/returns`
+    - smoke screenshots and JSON results were saved under [.tmp/pro-shop-next-wave-polish-smoke](c:\xampp\htdocs\GYM\.tmp\pro-shop-next-wave-polish-smoke)
+
+- `2026-04-04 21:38 Asia/Bangkok`:
+  - completed the broader all-role create-dialog regression sweep that was queued after the targeted `branch_manager` / `hr` permission pass
+  - updated [scripts/role-create-dialog-crawl.mjs](c:\xampp\htdocs\GYM\scripts\role-create-dialog-crawl.mjs) so the default crawler account set now truly covers all current non-admin business roles:
+    - `branch_manager`
+    - `sales`
+    - `customer_care`
+    - `accountant`
+    - `trainer`
+    - `hr`
+  - reran the create-dialog crawler with the widened default role set; refreshed output was saved to:
+    - [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+    - screenshots under [.tmp/qa-role-create-dialog](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog)
+  - all-role regression sweep results:
+    - `branch_manager`: `68` resource routes scanned, `65` accessible screens, `52` create-capable screens opened, `0` issues
+    - `sales`: `68` resource routes scanned, `34` accessible screens, `19` create-capable screens opened, `0` issues
+    - `customer_care`: `68` resource routes scanned, `16` accessible screens, `6` create-capable screens opened, `0` issues
+    - `accountant`: `68` resource routes scanned, `38` accessible screens, `20` create-capable screens opened, `0` issues
+    - `trainer`: `68` resource routes scanned, `33` accessible screens, `13` create-capable screens opened, `0` issues
+    - `hr`: `68` resource routes scanned, `12` accessible screens, `10` create-capable screens opened, `0` issues
+  - outcome:
+    - the current non-admin create-dialog baseline is now clean across the full crawler role set, so this checkpoint shifts from targeted permission recovery into ongoing regression insurance
+    - no new permission/helper regressions were introduced by the recent `branch_manager` / `hr` fixes or the Pro Shop polish wave
+
+- `2026-04-04 21:57 Asia/Bangkok`:
+  - continued the next medium-traffic wording/detail-drawer polish wave for Membership/PT screens:
+    - `/services`
+    - `/service-packages`
+    - `/trainers`
+    - `/training-sessions`
+  - updated drawer labeling/field selection and exact-text mappings so these screens now read more business-facing in Vietnamese instead of exposing raw schema-ish labels:
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+  - extended the polish smoke coverage in [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs) for the same 4 routes and aligned the expected wording with the final live UI:
+    - `Quy tac gia tri con lai`
+    - `Dia diem`
+  - verification completed:
+    - `npm run build:web` passed
+    - web runtime on `6173` was restarted again from the stable direct-node flow after the fresh build
+    - targeted Playwright smoke verification passed for all 4 Membership/PT routes with `0` missing texts / `0` forbidden raw labels / `0` runtime error routes
+  - outputs:
+    - JSON results at [.tmp/membership-pt-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\membership-pt-polish-smoke\results.json)
+    - screenshots under [.tmp/membership-pt-polish-smoke/screenshots](c:\xampp\htdocs\GYM\.tmp\membership-pt-polish-smoke\screenshots)
+
+- `2026-04-04 22:13 Asia/Bangkok`:
+  - saved a fresh handoff checkpoint after the Membership/PT polish wave so the current verified state is explicitly captured in the progress log
+  - current safe resume point:
+    - wording/detail-drawer polish for `/services`, `/service-packages`, `/trainers`, and `/training-sessions` is complete
+    - targeted smoke baseline is green at [.tmp/membership-pt-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\membership-pt-polish-smoke\results.json)
+    - broader non-admin create-dialog regression baseline remains green at [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+  - suggested next continuation:
+    - move to the next medium-traffic polish wave outside Membership/PT, while keeping the current smoke/crawler outputs as regression baselines
+
+- `2026-04-05 09:46 Asia/Bangkok`:
+  - continued the next medium-traffic Class Schedule polish wave for:
+    - `/class-schedule/bookings`
+    - `/class-schedule/classes`
+    - `/class-schedule/timetable`
+    - `/class-schedule/group-pt`
+  - updated the live class-schedule detail surfaces so these cloned routes no longer inherit PT / service-package wording that feels off in the class-booking context:
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+  - this wave added route-specific summary cards, tabs, and business-facing wording such as:
+    - `Thong tin booking`
+    - `Cau hinh lop`
+    - `Van hanh lop`
+    - `Thong tin PT nhom`
+    - `Booking chinh`
+    - `Khung gio`
+    - `So dang ky`
+  - the Class Schedule clones now also use cleaner overview field sets so the default `Tong quan` tab no longer leaks the old raw/generic field pattern from `training-sessions` / `service-packages`
+  - expanded the reusable smoke verifier for this wave in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+  - smoke verifier hardening in this pass:
+    - added the 4 class-schedule scenarios above
+    - added one extra settle/recheck pass before marking a route as failed when the first render is still on skeleton/loading state with no table rows yet
+    - removed one false-positive forbidden-text assertion on `classes` where the shared global search surface could legitimately contain `hop dong`
+  - verification completed after this Class Schedule wave:
+    - `npm run build:web` passed
+    - `npm --prefix apps/web run lint` passed with `0 errors` and `15 warnings`
+    - `npm run build:api` passed
+    - local API runtime restarted successfully on `6273`
+    - local web runtime restarted successfully on `6173`
+    - targeted Playwright smoke verification passed for all 4 Class Schedule routes with `0` missing texts / `0` forbidden raw labels / `0` runtime error routes:
+      - `/class-schedule/bookings`
+      - `/class-schedule/classes`
+      - `/class-schedule/timetable`
+      - `/class-schedule/group-pt`
+    - smoke outputs were saved to:
+      - [.tmp/class-schedule-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\class-schedule-polish-smoke\results.json)
+      - screenshots under [.tmp/class-schedule-polish-smoke/screenshots](c:\xampp\htdocs\GYM\.tmp\class-schedule-polish-smoke\screenshots)
+  - reran the broadened non-admin create-dialog crawler again after this polish wave to keep the regression baseline fresh:
+    - `branch_manager`: `68` resource routes scanned, `65` accessible screens, `52` create-capable screens opened, `0` issues
+    - `sales`: `68` resource routes scanned, `34` accessible screens, `19` create-capable screens opened, `0` issues
+    - `customer_care`: `68` resource routes scanned, `16` accessible screens, `6` create-capable screens opened, `0` issues
+    - `accountant`: `68` resource routes scanned, `38` accessible screens, `20` create-capable screens opened, `0` issues
+    - `trainer`: `68` resource routes scanned, `33` accessible screens, `13` create-capable screens opened, `0` issues
+    - `hr`: `68` resource routes scanned, `12` accessible screens, `10` create-capable screens opened, `0` issues
+    - refreshed crawler baseline saved to [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+  - current safe resume point:
+    - wording/detail-drawer polish for the 4 Class Schedule routes above is complete and verified
+    - targeted class-schedule smoke baseline is green at [.tmp/class-schedule-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\class-schedule-polish-smoke\results.json)
+    - broader non-admin create-dialog regression baseline remains green at [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+  - suggested next continuation:
+    - continue the next medium-traffic polish wave around the remaining Class Schedule / Staff utility screens not yet covered by the reusable smoke script, while keeping the current class-schedule smoke + all-role crawler outputs as the new regression baselines
+
+- `2026-04-05 10:37 Asia/Bangkok`:
+  - continued the next medium-traffic Class Schedule / Staff utility polish wave for:
+    - `/class-schedule/line-categories`
+    - `/class-schedule/line-schedule`
+    - `/class-schedule/booking-attachments`
+    - `/staff/exercise-library`
+    - `/staff/stages`
+    - `/staff/programs`
+  - updated the live cloned detail surfaces so these routes no longer inherit mismatched generic wording from unrelated source modules:
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+  - this wave added route-specific summary cards / sections / labels such as:
+    - `Danh muc line`
+    - `Van hanh line`
+    - `Ho so booking`
+    - `Thong tin bai tap`
+    - `Quy trinh stage`
+    - `Thong tin giao an`
+  - expanded the reusable smoke verifier for this wave in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+  - verification completed after this Class Schedule / Staff utility wave:
+    - `npm run build:web` passed
+    - `npm --prefix apps/web run lint` passed with `0 errors` and `15 warnings`
+    - targeted Playwright smoke verification passed for all `6` routes with `0` missing texts / `0` forbidden raw labels / `0` runtime error routes
+    - smoke outputs were saved to:
+      - [.tmp/class-staff-next-wave-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\class-staff-next-wave-polish-smoke\results.json)
+      - screenshots under [.tmp/class-staff-next-wave-polish-smoke/screenshots](c:\xampp\htdocs\GYM\.tmp\class-staff-next-wave-polish-smoke\screenshots)
+  - reran the broadened non-admin create-dialog crawler again after this polish wave; because the live runtime was less stable on long crawls, the run was split into 2 halves and then merged back into one final baseline:
+    - `branch_manager`: `68` resource routes scanned, `65` accessible screens, `52` create-capable screens opened, `0` issues
+    - `sales`: `68` resource routes scanned, `34` accessible screens, `19` create-capable screens opened, `0` issues
+    - `customer_care`: `68` resource routes scanned, `16` accessible screens, `6` create-capable screens opened, `0` issues
+    - `accountant`: `68` resource routes scanned, `38` accessible screens, `20` create-capable screens opened, `0` issues
+    - `trainer`: `68` resource routes scanned, `33` accessible screens, `13` create-capable screens opened, `0` issues
+    - `hr`: `68` resource routes scanned, `12` accessible screens, `10` create-capable screens opened, `0` issues
+    - merged crawler baseline saved to [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+    - split snapshots retained at:
+      - [.tmp/qa-role-create-dialog-results.part1.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.part1.json)
+      - [.tmp/qa-role-create-dialog-results.part2.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.part2.json)
+  - clarified the current report-template scope after reviewing the web + API implementation:
+    - `/settings/report-templates` is currently a shared report print/template configuration surface, not a drag-drop banded report designer
+    - the system-wide default template is appropriate for `title`, `subtitle`, `header`, `footer`, `paperSize`, `orientation`, and visibility toggles
+    - a detailed layout like the legacy screenshot would require a per-report designer engine with band/group/formula/schema support
+  - saved the current session transcript to:
+    - [docs/chat-logs/2026-04-05-session-chat-log.md](c:\xampp\htdocs\GYM\docs\chat-logs\2026-04-05-session-chat-log.md)
+  - current safe resume point:
+    - wording/detail-drawer polish for the 6 routes above is complete and verified
+    - targeted smoke baseline is green at [.tmp/class-staff-next-wave-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\class-staff-next-wave-polish-smoke\results.json)
+    - broader non-admin create-dialog regression baseline is merged and green at [.tmp/qa-role-create-dialog-results.json](c:\xampp\htdocs\GYM\.tmp\qa-role-create-dialog-results.json)
+    - the remaining product decision around report wording/capability is whether to keep the current `Thiet ke bao cao` label or rename it to better match the implemented scope
+  - suggested next continuation:
+    - continue the next medium-traffic polish wave outside the routes above, or
+    - clean up the report-template wording so the UI no longer implies a full report-designer capability
+
+- `2026-04-05 16:04 Asia/Bangkok`:
+  - completed the deeper post-license i18n/font sweep for `GYM` after screenshot reports of mixed Korean, English, and ASCII Vietnamese still leaking through module screens
+  - switched from screenshot-by-screenshot patching to a source-level audit across the shared registry in [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+  - expanded the shared translation coverage in [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts) so registry-driven titles, subtitles, labels, placeholders, and report summaries no longer fall back to half-translated text
+  - the already-shared portal surfaces continue to consume that layer cleanly, especially:
+    - [apps/web/components/portal/settings-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\settings-workspace.tsx)
+    - [apps/web/components/portal/report-template-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-template-workspace.tsx)
+  - verification completed after the sweep:
+    - runtime audit over `menuGroups`, `resourceRegistry`, `reportRegistry`, `settingsRegistry`, and `portalPageRegistry` ended with:
+      - `viLeakCount: 0`
+      - `unchangedCount: 0`
+    - `npm run build` passed in [apps/web](c:\xampp\htdocs\GYM\apps\web)
+  - current safe resume point:
+    - registry-driven UI copy for the main `GYM` modules is now clean at the shared i18n layer
+    - if any new mixed-language issues appear later, they are more likely to come from API payload data or isolated runtime strings rather than from [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+  - suggested next continuation:
+    - continue screenshot QA only for residual runtime/API-fed text, or
+    - extend the same audit pattern to any newly added modules before they are shown to users
+
+- `2026-04-05 14:20 Asia/Bangkok`:
+  - ported the QLKS-style product license flow into `GYM`, including the same 4 license modes:
+    - `TRIAL_1_MONTH`
+    - `SUBSCRIPTION_1_YEAR`
+    - `SUBSCRIPTION_3_YEARS`
+    - `PERMANENT`
+  - added a full backend license module for Nest API:
+    - [apps/api/src/modules/license/license.shared.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\license\license.shared.ts)
+    - [apps/api/src/modules/license/license.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\license\license.service.ts)
+    - [apps/api/src/modules/license/license.controller.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\license\license.controller.ts)
+    - [apps/api/src/modules/license/license.module.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\license\license.module.ts)
+    - [apps/api/src/modules/license/license.public-key.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\license\license.public-key.ts)
+  - backend license behavior now includes:
+    - machine-bound request/unlock code generation with `GYM-REQ` / `GYM-KEY`
+    - local file state under [data/license/license-state.json](c:\xampp\htdocs\GYM\data\license\license-state.json)
+    - activation-password gate with default/fallback `258258`
+    - protected API routes now enforce license usability through [permissions.guard.ts](c:\xampp\htdocs\GYM\apps\api\src\common\guards\permissions.guard.ts) before normal permission checks
+  - added the full frontend license surface for the web app:
+    - [apps/web/app/license/page.tsx](c:\xampp\htdocs\GYM\apps\web\app\license\page.tsx)
+    - [apps/web/components/license/license-request-code-panel.tsx](c:\xampp\htdocs\GYM\apps\web\components\license\license-request-code-panel.tsx)
+    - [apps/web/components/license/license-activation-form.tsx](c:\xampp\htdocs\GYM\apps\web\components\license\license-activation-form.tsx)
+    - [apps/web/components/license/license-topbar-actions.tsx](c:\xampp\htdocs\GYM\apps\web\components\license\license-topbar-actions.tsx)
+    - [apps/web/lib/license-context.tsx](c:\xampp\htdocs\GYM\apps\web\lib\license-context.tsx)
+    - [apps/web/lib/license.ts](c:\xampp\htdocs\GYM\apps\web\lib\license.ts)
+    - [apps/web/types/license.ts](c:\xampp\htdocs\GYM\apps\web\types\license.ts)
+  - web runtime now:
+    - shows live license summary + compact request-code actions in the top navbar
+    - exposes a dedicated `/license` page outside the portal shell
+    - redirects authenticated portal users to `/license` when the license becomes unusable
+    - surfaces the current license summary on the login page
+  - added QLKS-style keygen tooling at the repo root:
+    - [license-tool.bat](c:\xampp\htdocs\GYM\license-tool.bat)
+    - [tools/license-keygen/cli.ts](c:\xampp\htdocs\GYM\tools\license-keygen\cli.ts)
+    - [tools/license-keygen/private-key.ts](c:\xampp\htdocs\GYM\tools\license-keygen\private-key.ts)
+    - [package.json](c:\xampp\htdocs\GYM\package.json) now exposes `npm run license:tool`
+    - [.env](c:\xampp\htdocs\GYM\.env) and [.env.example](c:\xampp\htdocs\GYM\.env.example) now include `LICENSE_ACTIVATION_PASSWORD`
+  - careful verification completed for the license rollout:
+    - `npm run build` passed in [apps/api](c:\xampp\htdocs\GYM\apps\api)
+    - `npm run build` passed in [apps/web](c:\xampp\htdocs\GYM\apps\web)
+    - live API verification on `http://127.0.0.1:6273/api/license` returned the expected trial status and request code
+    - `npm run license:tool -- --password 258258 --request "<request>" --plan SUBSCRIPTION_1_YEAR` generated a valid unlock code and saved output to [data/license/keygen-last-result.txt](c:\xampp\htdocs\GYM\data\license\keygen-last-result.txt)
+    - `license-tool.bat --run ... --plan PERMANENT` was executed successfully through `cmd`, proving the batch launcher pathing is correct and the file output workflow is stable
+    - activation via `/api/license/access` + `/api/license/activate` succeeded end-to-end with a real generated key
+    - authenticated runtime verification still worked after wiring license enforcement:
+      - `/api/auth/login` succeeded for `admin@fitflow.local`
+      - `/api/dashboard/summary` returned live data under the active license path
+  - state cleanup after verification:
+    - after proving request -> keygen -> activate worked, the local state file was intentionally restored to default trial mode so the repo does not stay pre-activated by a QA key
+    - current safe local state is:
+      - [data/license/license-state.json](c:\xampp\htdocs\GYM\data\license\license-state.json) -> `activeLicense: null`
+      - [data/license/keygen-last-result.txt](c:\xampp\htdocs\GYM\data\license\keygen-last-result.txt) still keeps the latest generated unlock-code output as an operator artifact
+  - current safe resume point:
+    - the GYM license system is now implemented and build-clean on both API + web
+    - request code / unlock code / activation password / local license state / topbar summary / license center / batch keygen are all wired
+    - the next pass, if needed, is polish or product copy refinement rather than missing core license behavior
+
+- `2026-04-06 08:29 Asia/Bangkok`:
+  - completed the next wording-alignment pass for `/settings/report-templates` so the UI no longer implies a full drag-drop report designer where the implemented scope is actually report export / print configuration
+  - updated the live settings copy in:
+    - [apps/web/components/portal/report-template-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-template-workspace.tsx)
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+  - wording changes in this pass:
+    - renamed the settings entry/title from `Quan ly mau bao cao` to `Cau hinh xuat bao cao`
+    - replaced the misleading modal heading `Thiet ke bao cao` with `Cau hinh xuat bao cao`
+    - changed action/status labels that previously suggested file-based template management even though the screen is metadata-driven:
+      - `Them moi` -> `Them tuy chinh`
+      - `File mau` -> `Nguon cau hinh`
+      - `Tai len mau bao cao` -> `Co che luu mau`
+      - `Tra ve mau chung` -> `Tra ve mac dinh`
+    - refreshed helper text so the page now clearly communicates metadata-backed export/print configuration and per-report overrides instead of a visual report-designer workflow
+  - verification completed after this wording pass:
+    - `npm --prefix apps/web run lint` passed
+    - `npm run build:web` passed
+  - current safe resume point:
+    - report-template wording now matches the implemented scope more closely across menu, page title, modal, status text, and helper copy
+    - the next continuation can move back to the remaining medium-traffic screenshot/polish wave instead of leaving this wording ambiguity open
+
+- `2026-04-06 09:11 Asia/Bangkok`:
+  - completed the final all-module i18n/font sweep focused on untranslated UI labels and mojibake leakage across the live portal runtime
+  - audit method for this pass:
+    - reran the full Playwright portal crawl across `86` routes with admin bootstrap auth using [scripts/portal-runtime-i18n-audit.mjs](c:\xampp\htdocs\GYM\scripts\portal-runtime-i18n-audit.mjs)
+    - traced remaining runtime hits back to their actual sources instead of only overlay-fixing screenshots:
+      - detail-drawer overview labels were still falling back to raw `fieldKey` humanization in some modules
+      - a small set of exact-text dictionary entries still carried mojibake for labels like `Phuong thuc`, `Mau OTP`, `Nguong Gold`, `Chuc danh`
+  - code changes in this pass:
+    - [apps/web/components/shared/detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\shared\detail-drawer.tsx)
+      - added `fieldLabels` support so the drawer overview can prefer explicit localized labels instead of always deriving labels from camelCase keys
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+      - now builds the field-label map from localized `resource.columns` and `resource.fields` before rendering the shared drawer
+    - [apps/web/lib/i18n/display.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\display.ts)
+      - hardened `translateFieldLabel()` to normalize acronym-style camelCase sources such as `logoUrl` / `appUrl` / `avatarUrl` before fallback translation
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added final overrides for the remaining mojibake/untranslated labels found in runtime, including payment-method wording, OTP/reminder template labels, loyalty thresholds, job title, and common generic drawer labels
+  - concrete runtime problems fixed in this sweep:
+    - `settings/branches`: removed remaining `Logo URL` leak in the detail drawer
+    - `settings/users`: removed remaining `Avatar URL` leak in the detail drawer
+    - `cashbook/expenses`, `cashbook/receipts`, `pro-shop/returns`, `pro-shop/sales`: fixed mojibake around `Phuong thuc`
+    - `settings/communication`: fixed mojibake around `Mau OTP`, `Mau nhac lich`, `Bien OTP`
+    - `settings/loyalty-benefits`: fixed mojibake around `Nguong Silver / Gold / VIP` and `Bonus sinh nhat`
+    - `staff/users`: fixed mojibake around `Chuc danh`
+    - generic detail drawers now also stop leaking obvious English labels like `EMPLOYEE CODE`, `TITLE`, `PERMISSION COUNT` when a localized module label already exists
+  - verification completed after the sweep:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - reran the full runtime audit and the result is now:
+      - `totalRoutes: 86`
+      - `issueRoutes: 0`
+      - `phraseLeakRoutes: 0`
+      - `mojibakeRoutes: 0`
+      - `hangulRoutes: 0`
+      - `pageErrorRoutes: 0`
+      - `consoleErrorRoutes: 0`
+      - `requestFailureRoutes: 0`
+      - `responseErrorRoutes: 0`
+  - current safe resume point:
+    - the last known untranslated/font-encoding leaks in the live web portal are cleared for the audited route set
+    - the next continuation can move back to selective UX polish or new feature work rather than another broad i18n cleanup pass
+
+- `2026-04-06 09:38 Asia/Bangkok`:
+  - completed the next report-polish wave for the remaining generic-looking overview/report screens:
+    - `/overview/follow-up`
+    - `/reports/payment`
+    - `/reports/contract-remain`
+    - `/reports/deposit`
+    - `/reports/kpi`
+    - `/reports/lead`
+  - UX/i18n improvements in this pass:
+    - [apps/web/components/portal/report-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-workspace.tsx)
+      - added report-specific search placeholders for the six target report types
+      - added per-report column-label overrides so raw keys like `assignedTo`, `nextFollowUpAt`, `actualRevenue`, `servicePackage`, `receivedAt`, `returnedAt` no longer leak as generic English-style headers
+      - added preferred visible-column orders for the new report wave so tables read more like business screens and less like raw payload dumps
+      - generalized the sidebar facet filter to support report-specific keys/labels (`urgency`, `type`, `status`) instead of only the old hard-coded `checkin` / `staff-attendance` / `debt` cases
+      - enabled summary-strip fallback from `summaryKeys` when a report does not provide a custom summary-strip builder, which lit up KPI / lead / follow-up / payment / deposit / contract-remain immediately
+      - surfaced the report subtitle in the left rail so these screens no longer feel like an uncontextualized generic report shell
+      - added payment enum label handling and badge support for `RECEIPT` / `EXPENSE`
+    - [apps/web/components/shared/status-badge.tsx](c:\xampp\htdocs\GYM\apps\web\components\shared\status-badge.tsx)
+      - added badge styling for `RECEIPT` and `EXPENSE`
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added localized status labels for `RECEIPT` / `EXPENSE`
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+      - aligned remaining report naming so `payment` is now `Bao cao thu chi` and `deposit` is now `Bao cao tien coc`
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+      - added `skipDetail` support for report pages that do not open a resource drawer
+      - added targeted smoke scenarios for the report wave above with forbidden-text assertions against the old generic English labels
+  - data cleanup completed in the same pass:
+    - [prisma/seed.ts](c:\xampp\htdocs\GYM\prisma\seed.ts)
+      - replaced the seeded English operating-expense note `Seeded operating expense for report comparison and table testing.` with Vietnamese copy so `/reports/payment` no longer leaks English content from seed data
+    - updated the live local database records for that expense-note string as part of verification so the smoke run reflects the real current runtime, not just the seed file on disk
+  - verification completed after this pass:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - targeted smoke via [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs) passed with:
+      - `totalRoutes: 7`
+      - `issueCount: 0`
+      - `missingTextRoutes: 0`
+      - `forbiddenTextRoutes: 0`
+      - `runtimeErrorRoutes: 0`
+  - current safe resume point:
+    - the follow-up / payment / contract-remain / deposit / KPI / lead report wave is now visually and textually aligned with the rest of the portal
+    - the next continuation can move on to the next medium-traffic screenshot/polish cluster rather than revisiting this report shell wave
+
+- `2026-04-06 10:20 Asia/Bangkok`:
+  - completed a deeper Korean-locale report table sweep driven by the screenshot batch from the user, covering the remaining label/value leaks on:
+    - `/reports/branch-summary`
+    - `/reports/package-progress`
+    - `/reports/deposit`
+    - `/reports/kpi`
+    - `/reports/lead`
+    - `/reports/checkin`
+    - `/reports/pt-training`
+    - `/reports/staff-attendance`
+    - `/reports/staff-review`
+    - `/reports/lead-status`
+    - `/reports/card-revenue`
+    - `/reports/payment`
+    - `/pro-shop/cashbook`
+    - `/reports/birthday`
+    - `/reports/follow-up`
+  - implementation details:
+    - [apps/web/components/portal/report-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-workspace.tsx)
+      - expanded report column-label coverage for the remaining generic keys such as `totalContracts`, `birthDate`, `nextBirthday`
+      - added report-specific source-value overrides for lead/follow-up reports so raw lead sources no longer degrade into spaced tokens like `F A C E B O O K A D S`
+      - tightened `formatCell()` so birthday fields render as dates while numeric `daysUntilBirthday` no longer get misformatted as a date
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added the missing exact-text translations for remaining sidebar/table labels such as `Ty le chuyen doi`, `Ty le thu`, `Buoi da len lich`, `PT phu trach`, `Khach nop coc`, `Gio vao`, `Gio ra`, `Ca lam`, `Chi so hieu suat`, `Loai phieu`
+      - added Korean translations for seeded demo row values still leaking through report tables, including cash/payment notes and vendor labels such as `Facility Service Vendor`, `Monthly cleaning service`, `Thanh toan goi hoi vien gym`, `Tien mat`, `Chuyen khoan`
+  - verification completed after this sweep:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - targeted Korean runtime audit across the 15 affected routes passed with:
+      - `routeCount: 15`
+      - `issueCount: 0`
+  - current safe resume point:
+    - the screenshot-driven Korean report-table cleanup is now clean for the audited routes, including filter labels, table headers, facet labels, summary text, and seeded demo text that appears inside report rows
+    - the next continuation can move back to selective UX polish or another module cluster instead of continuing this report-table translation pass
+
+- `2026-04-06 11:40 Asia/Bangkok`:
+  - completed a follow-up fix for the remaining Korean-locale leak on `/staff/stages` after the user reported the screen was still mixing untranslated role-stage text
+  - implementation details:
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added exact-text translations for the remaining `staff/stages` table labels and helper copy such as `Ma stage`, `Ten stage`, and the horizontal-scroll hint
+      - added Korean translations for the system role/stage names and descriptions still coming from the `roles` resource payload, including `Chu he thong`, `System owner`, `Branch manager`, `Finance operations`, `HR and attendance`, `Super Admin`, `PT / Huan luyen vien`, `Le tan / Sales`, and related strings
+      - added the missing drawer/detail translations for the custom staff-stage sections such as `So moc`, `Nhan su dang gan`, `Moc quy trinh`, `Nhan su phu trach`, `Tai lieu`, and the empty-state messages for unconfigured workflow milestones or unassigned staff
+  - verification completed after this fix:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - targeted runtime verification on `/staff/stages` in Korean locale passed with:
+      - `issueCount: 0`
+      - table labels, seeded role names/descriptions, horizontal-scroll helper text, and the first-row detail drawer all rendered without the previously reported untranslated leaks
+  - current safe resume point:
+    - the `staff/stages` screen is now aligned with the prior Korean i18n sweeps for report tables and no longer needs a separate follow-up pass unless new role labels are introduced later through backend data
+    - the next continuation can return to broader portal polish or the next screenshot-driven module instead of revisiting this stages screen
+
+- `2026-04-06 13:05 Asia/Bangkok`:
+  - completed a full-portal Korean i18n hardening pass after the user reported repeated misses outside the originally patched screenshot routes
+  - root-cause fixes completed:
+    - [apps/web/lib/i18n/display.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\display.ts)
+      - upgraded translation lookup to match both ASCII source keys and normalized Vietnamese-with-diacritics input, so repaired text like `Vắng mặt`, `dự kiến`, `sản phẩm`, `đối tác` no longer falls through untranslated after UTF-8 normalization
+      - expanded phrase replacement to recognize source, repaired Vietnamese text, and accent-stripped variants, reducing repeat misses across resource/report/setting modules instead of only per-screen patches
+    - [scripts/portal-runtime-i18n-audit.mjs](c:\xampp\htdocs\GYM\scripts\portal-runtime-i18n-audit.mjs)
+      - fixed the runtime audit bootstrap so locale cookie is injected before first navigation, letting SSR and client both render the requested Korean locale during audit instead of silently falling back to Vietnamese on first load
+  - remaining route-specific cleanup completed:
+    - [apps/web/components/portal/report-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\report-workspace.tsx)
+      - added the missing override for `sessionsPerTrainer` so allocation/branch summary tables no longer leak `sessions Per Trainer`
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added missing exact-text coverage for `Buoi / PT`, `Lead mo`, and `Tu dang thue`, which were the last live Korean leaks exposed by the corrected whole-portal audit
+  - verification completed after this pass:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - full runtime audit across all `86` portal routes in Korean locale passed with:
+      - `issueRoutes: 0`
+      - `phraseLeakRoutes: 0`
+      - `mojibakeRoutes: 0`
+      - `pageErrorRoutes: 0`
+      - `consoleErrorRoutes: 0`
+      - `requestFailureRoutes: 0`
+      - `responseErrorRoutes: 0`
+  - current safe resume point:
+    - the portal-wide Korean-language stabilization sweep is now clean on the full audited route set, including the previously problematic report/resource mixes and the SSR/client locale bootstrap path
+    - the next continuation should move away from broad translation cleanup and back to UX polish, seed-data refinement, or the next feature/change request
+
+- `2026-04-06 15:08 Asia/Bangkok`:
+  - completed the final exhaustive Korean i18n sweep requested by the user, switching from screenshot-by-screenshot fixes to a full source + runtime audit across the entire portal
+  - audit tooling added/expanded:
+    - [scripts/portal-source-i18n-audit.ts](c:\xampp\htdocs\GYM\scripts\portal-source-i18n-audit.ts)
+      - added a source-level audit that walks `resourceRegistry`, `reportRegistry`, `settingsRegistry`, `portalPageRegistry`, and key portal components, then calls the live Korean translator on every collected UI string
+      - flags both fully missing translations and mixed-output cases such as `san pham 코드` / `알림 van hanh`, which were previously slipping past the narrower runtime-only checks
+  - full-app cleanup completed:
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added a new exhaustive exact-text block for the remaining cross-module UI leaks found by the source audit, including report labels (`Dia diem`, `Tang ca`, `Uu tien`, `Gia tri goc`), resource-detail captions (`Khu vuc`, `Diem danh`, `Buoi tiep theo`, `Ma thue tu`, `Hang muc`), topbar copy, permission/empty-state text, and Pro Shop/settings helper copy
+      - added Korean translations for seeded/demo text that still surfaced in runtime tables such as `Uu tien muc tieu giam mo va cai thien the luc.`, `Tap tu do, uu tien khung gio chieu toi.`, and `Khach uu tien PT giam mo, hay tap buoi sang.`
+  - verification completed after the exhaustive sweep:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - source-level Korean audit passed clean with:
+      - `totalIssues: 0`
+      - `missing: 0`
+      - `mixed: 0`
+    - full runtime audit across all `86` portal routes in Korean locale passed clean again with the broader forbidden-phrase list, including terms such as `san pham`, `doi tac`, `gia tri goc`, `khu vuc`, `diem danh`, `ma thue tu`, `tang ca`, and `uu tien`
+      - `issueRoutes: 0`
+      - `phraseLeakRoutes: 0`
+      - `mojibakeRoutes: 0`
+      - `pageErrorRoutes: 0`
+      - `consoleErrorRoutes: 0`
+      - `requestFailureRoutes: 0`
+      - `responseErrorRoutes: 0`
+  - current safe resume point:
+    - the Korean-language cleanup is now covered by both source audit and runtime audit, so future regressions can be caught systematically instead of waiting for screenshot reports
+    - the next continuation should only revisit i18n if new modules/data fields are introduced; otherwise the safer next workstream is UX polish or feature work
+
+- `2026-04-06 17:53 Asia/Bangkok`:
+  - continued the next medium-traffic `Nghiep vu` polish wave for the contract-clone screens:
+    - `/operations/service-registration`
+    - `/operations/contract-renewal`
+    - `/operations/contract-transfer`
+    - `/operations/branch-transfer`
+    - `/operations/contract-conversion`
+  - drawer/detail polish completed in:
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+      - added route-specific summary strips for the 5 operations contract clones above instead of reusing the same generic contract summary everywhere
+      - added business-facing info sections such as `Ho so dang ky`, `Ho so gia han`, `Ho so chuyen nhuong`, `Thong tin dieu chuyen`, and `Ho so chuyen doi`
+      - relabeled the inherited shared contract tabs per route so these screens no longer fall back to the generic `Lich su / Phieu thu / Hang muc / Buoi tap / Chuyen doi` wording when the actual workflow is registration / renewal / transfer / branch-transfer specific
+  - list/detail labeling was tightened in:
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+      - `operations/service-registration` now uses business-facing list/detail labels such as `Goi dang ky` and `Sale phu trach`
+      - `operations/contract-renewal` now uses `Sale phu trach` and `PT phu trach`
+      - `operations/contract-transfer` now uses `Goi dang chuyen`
+      - `operations/branch-transfer` now uses `Chi nhanh hien tai`, `Goi dang tap`, `Sale phu trach`, and `PT phu trach`
+      - `operations/contract-conversion` now uses `Hop dong cu`
+  - locale coverage for the new wording was added in:
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added exact-text entries for the new operation-specific labels/tabs so the polish does not regress when switching locale later
+  - smoke tooling was expanded in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+      - added the 5 route scenarios above to the reusable polish smoke baseline
+      - hardened auth bootstrap fallback and added one extra settle/recheck pass so the smoke run is less likely to false-fail on slower first-render list pages
+  - verification completed after this wave:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - restarted the local web runtime on `6173` from the stable direct production command after the fresh build
+    - targeted Playwright smoke verification passed for all `5` routes with:
+      - `detailOpened: 5`
+      - `issueCount: 0`
+      - `missingTextRoutes: 0`
+      - `forbiddenTextRoutes: 0`
+      - `runtimeErrorRoutes: 0`
+    - smoke outputs were saved to:
+      - [.tmp/operations-contract-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\operations-contract-polish-smoke\results.json)
+      - screenshots under [.tmp/operations-contract-polish-smoke/screenshots](c:\xampp\htdocs\GYM\.tmp\operations-contract-polish-smoke\screenshots)
+  - current safe resume point:
+    - the next operations contract-clone polish wave is now covered by a reusable smoke baseline instead of only ad-hoc screenshots
+    - `service-registration`, `contract-renewal`, `contract-transfer`, `branch-transfer`, and `contract-conversion` now read like distinct workflows in both the list and detail drawer instead of generic shared-contract clones
+  - suggested next continuation:
+    - continue the next medium-traffic polish wave on the remaining un-smoked utility screens outside this operations cluster, or
+    - revisit the remaining operation clones (`contract-upgrade`, `contract-freeze`, `contract-cancel`, `service-price-book`) to bring them onto the same route-specific drawer/tab baseline
+
+- `2026-04-06 18:48 Asia/Bangkok`:
+  - continued the follow-up `Nghiep vu` polish wave for the remaining operation clones:
+    - `/operations/service-price-book`
+    - `/operations/contract-upgrade`
+    - `/operations/contract-freeze`
+    - `/operations/contract-cancel`
+  - drawer/detail polish completed in:
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+      - added route-specific summary strips for `service-price-book`, `contract-upgrade`, `contract-freeze`, and `contract-cancel`
+      - `service-price-book` now uses its own price-book drawer sections such as `Thong tin bang gia` and `Dang ky su dung` instead of inheriting the generic `service-packages` tab wording
+      - `contract-upgrade`, `contract-freeze`, and `contract-cancel` now use operation-specific overview cards and relabeled shared contract tabs so they no longer feel like unchanged base-contract drawers
+      - the `service-packages` generic drawer sections now skip the `operations/service-price-book` clone to avoid duplicate mixed-context sections
+  - list/detail labeling and empty-state polish was tightened in:
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+      - `operations/service-price-book` now uses `Phan loai goi` and `So dang ky`
+      - `operations/contract-upgrade` now uses `Hop dong tham chieu` and `Gia tri con lai`
+      - `operations/contract-freeze` now uses `Goi tam dung`, `Bat dau bao luu`, and `Ket thuc bao luu`
+      - `operations/contract-cancel` now uses `Goi da huy`, `Gia tri chot`, and `Ngay dong`
+      - added route-specific empty-state copy for `operations/contract-cancel` so the zero-row screen reads intentionally instead of falling back to the generic auto-built empty-state sentence
+    - [apps/web/components/portal/resource-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-workspace.tsx)
+      - resource workspaces now honor optional `emptyStateTitle` / `emptyStateDescription` overrides from the localized resource definition
+    - [apps/web/types/portal.ts](c:\xampp\htdocs\GYM\apps\web\types\portal.ts)
+    - [apps/web/lib/i18n/portal.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\portal.ts)
+      - extended the shared resource-definition typing/localization path so those empty-state overrides flow through safely
+  - locale coverage for the new wording was added in:
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added exact-text entries for the new price-book / upgrade / freeze / cancel labels, tabs, and the new cancel empty-state copy so the wording remains stable across locale switching
+  - smoke tooling was expanded in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+      - added the 4 route scenarios above to the reusable polish smoke baseline
+      - covered the `contract-cancel` empty-state surface with `skipDetail` because the current live seed/runtime has `0` cancelled rows on this route
+  - verification completed after this wave:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - restarted the local web runtime on `6173` from the stable direct production command after the fresh build
+    - targeted Playwright smoke verification passed for all `4` routes with:
+      - `detailOpened: 3`
+      - `issueCount: 0`
+      - `missingTextRoutes: 0`
+      - `forbiddenTextRoutes: 0`
+      - `runtimeErrorRoutes: 0`
+    - smoke outputs were saved to:
+      - [.tmp/operations-contract-next-wave-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\operations-contract-next-wave-polish-smoke\results.json)
+      - screenshots under [.tmp/operations-contract-next-wave-polish-smoke/screenshots](c:\xampp\htdocs\GYM\.tmp\operations-contract-next-wave-polish-smoke\screenshots)
+  - current safe resume point:
+    - the remaining operation clones listed in the menu are now on the same route-specific list/drawer/empty-state baseline as the previous contract-clone wave
+    - the reusable smoke baseline now covers both operation waves across `service-price-book`, `service-registration`, `contract-renewal`, `contract-upgrade`, `contract-freeze`, `contract-transfer`, `branch-transfer`, `contract-cancel`, and `contract-conversion`
+  - suggested next continuation:
+    - move to the next medium-traffic polish wave outside the `Nghiep vu` cluster, while keeping the two operations smoke outputs as the new regression baseline
+
+- `2026-04-06 20:03 Asia/Bangkok`:
+  - continued the next medium-traffic utility-clone polish wave for:
+    - `/operations/towels`
+    - `/operations/loyalty`
+    - `/pt-schedule/penalty-history`
+    - `/staff/program-templates`
+  - route-specific drawer/list polish was completed in:
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+      - `operations/towels` now uses towel/supply-specific summary labels, field labels, and drawer sections such as `Thong tin khan tap` and `Lich su bo sung` instead of reading like an unchanged product drawer
+      - `operations/loyalty` now gets its own `Ho so loyalty` overview plus relabeled shared customer sections such as `Lich su loyalty`, `Hop dong lien quan`, and `Giao dich thu`
+      - `pt-schedule/penalty-history` now uses penalty-specific summary/detail wording such as `Ho so penalty`, `Bien dong du lieu`, `Hanh dong penalty`, and `Nguon truy cap` instead of the generic audit-log phrasing
+    - [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+      - tightened list/search/create labels for `operations/towels` and `operations/loyalty`
+      - added route-specific empty-state copy plus column relabeling for `pt-schedule/penalty-history`
+      - made `staff/program-templates` explicitly read as a shared-template fallback route instead of pretending a dedicated program-template backend already exists
+  - setting-clone support was generalized in:
+    - [apps/web/components/portal/settings-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\settings-workspace.tsx)
+    - [apps/web/types/portal.ts](c:\xampp\htdocs\GYM\apps\web\types\portal.ts)
+    - [apps/web/lib/i18n/portal.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\portal.ts)
+      - setting definitions can now carry route-specific `createLabel`, empty-state copy, and contextual notice copy
+      - the shared template workspace no longer hardcodes birthday-only explanatory text, so clone setting routes can reuse it without misleading copy
+      - `staff/program-templates` now surfaces a clear notice that it is temporarily using the shared system template library until a dedicated backend exists
+  - locale coverage for the new wording was added in:
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added exact-text coverage for the new towel / loyalty / penalty / shared-template wording so locale switching keeps the polish stable
+  - smoke tooling was expanded in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+      - added reusable scenarios for the 4 routes above
+      - tuned the new `operations/towels` and `pt-schedule/penalty-history` assertions so the smoke matches the real seeded runtime surfaces instead of assuming non-empty table headers on every route
+  - verification completed after this wave:
+    - `npm --prefix apps/web run lint` passed with the same pre-existing `17 warnings` and `0 errors`
+    - `npm run build:web` passed
+    - restarted the local web runtime on `6173` from the fresh production build
+      - runtime logs: [.tmp/utility-clone-polish-server/web-6173.out.log](c:\xampp\htdocs\GYM\.tmp\utility-clone-polish-server\web-6173.out.log)
+    - targeted Playwright smoke verification passed for all `4` routes with:
+      - `detailOpened: 2`
+      - `issueCount: 0`
+      - `missingTextRoutes: 0`
+      - `forbiddenTextRoutes: 0`
+      - `runtimeErrorRoutes: 0`
+    - smoke outputs were saved to:
+      - [.tmp/utility-clone-polish-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\utility-clone-polish-smoke\results.json)
+  - current safe resume point:
+    - the next utility-clone baseline is now covered for `operations/towels`, `operations/loyalty`, `pt-schedule/penalty-history`, and `staff/program-templates`
+    - `staff/program-templates` is intentionally framed as a shared-template placeholder until a real program-template backend/data source exists; that limitation is now explicit in the UI instead of hidden behind misleading copy
+  - suggested next continuation:
+    - move to the next remaining medium-traffic screens that looked coherent but still have no smoke baseline such as `/class-schedule/cskh-booking` and `/staff/kpi`, or
+    - revisit the remaining obviously data-thin clones if we want to go beyond copy/drawer polish into dedicated seed-data or backend splits
+
+- `2026-04-06 20:08 Asia/Bangkok`:
+  - continued the next regression-hardening pass for the remaining medium-traffic report clones that already looked coherent in runtime:
+    - `/class-schedule/cskh-booking`
+    - `/staff/kpi`
+  - no UI/data patch was needed after re-checking the live runtime text because both routes were already reading intentionally in Vietnamese and did not show an obvious base-clone mismatch
+  - smoke tooling was expanded in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+      - added a reusable scenario for `/class-schedule/cskh-booking` to lock the CSKH-booking wording and prevent regression back to the base `follow-up` report title/subtitle
+      - added a reusable scenario for `/staff/kpi` to lock the staff-KPI wording and prevent regression back to the base `Bao cao KPI` route copy
+  - verification completed after this hardening pass:
+    - targeted Playwright smoke verification passed for both routes with:
+      - `detailOpened: 0`
+      - `issueCount: 0`
+      - `missingTextRoutes: 0`
+      - `forbiddenTextRoutes: 0`
+      - `runtimeErrorRoutes: 0`
+    - smoke outputs were saved to:
+      - [.tmp/report-clone-baseline-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\report-clone-baseline-smoke\results.json)
+  - current safe resume point:
+    - `class-schedule/cskh-booking` and `staff/kpi` are now covered by the shared polish-smoke baseline even though they did not require a UI rewrite
+    - the remaining continuation space is increasingly about optional UX refinement and coverage expansion, not broken clone wiring
+  - suggested next continuation:
+    - continue smoke/baseline hardening for the next coherent-but-uncovered screens, or
+    - switch back to screenshot-driven UX polish if we want the next pass to be more visible than infrastructural
+
+- `2026-04-06 20:36 Asia/Bangkok`:
+  - continued the next smoke-baseline hardening wave for the high-traffic `Hoi vien` core routes:
+    - `/members/customers`
+    - `/members/leads`
+    - `/members/status`
+    - `/members/debt`
+    - `/members/birthday`
+  - no app runtime patch was needed in this pass; the work stayed in regression coverage because the live screens were already reading coherently after inspection
+  - smoke tooling was expanded in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+      - added reusable scenarios for the 5 routes above
+      - `members/customers`, `members/leads`, and `members/status` now verify both list-level wording and detail-drawer tabs/labels
+      - `members/debt` and `members/birthday` now verify clone-specific page wording against their member-facing report titles/subtitles instead of the base report routes
+      - tuned `members/status` and `members/birthday` expectations to the actual localized runtime copy (`dang hoat dong`, `tiem nang`, `ngung hoat dong`) so the baseline matches what users really see
+  - verification completed after this hardening pass:
+    - targeted Playwright smoke verification passed for all `5` routes with:
+      - `detailOpened: 3`
+      - `issueCount: 0`
+      - `missingTextRoutes: 0`
+      - `forbiddenTextRoutes: 0`
+      - `runtimeErrorRoutes: 0`
+    - smoke outputs were saved to:
+      - [.tmp/members-core-baseline-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\members-core-baseline-smoke\results.json)
+  - current safe resume point:
+    - the `Hoi vien` core route group now has baseline coverage across member list, lead list, status list, debt view, and birthday view
+    - the next remaining uncovered routes are increasingly outside the core member/operations/class clusters and can be picked based on either business priority or screenshot-polish value
+  - suggested next continuation:
+    - continue baseline hardening for `dashboard` / `overview/*` and the remaining report routes, or
+    - shift to visual/reference polish on the highest-traffic dashboards now that the core member routes are protected
+
+- `2026-04-06 20:59 Asia/Bangkok`:
+  - continued the next smoke-baseline hardening wave for the remaining high-traffic `dashboard` / `overview` cluster:
+    - `/dashboard`
+    - `/overview/kpi`
+    - `/overview/branch-revenue`
+    - `/overview/birthday`
+    - `/overview/lead`
+  - no app runtime patch was needed in this pass; I first re-checked the live body text for all 5 routes and the runtime copy was already coherent, so the work stayed in regression coverage
+  - smoke tooling was expanded in:
+    - [scripts/portal-polish-smoke.mjs](c:\xampp\htdocs\GYM\scripts\portal-polish-smoke.mjs)
+      - added reusable baseline scenarios for the 5 routes above
+      - `dashboard` now locks the system-overview title/subtitle plus the key stat-card and section labels so a fallback/generic dashboard shell is easier to catch
+      - the 4 `overview/*` routes now lock their clone-specific page title/subtitle against the base report wording they were derived from
+      - `overview/birthday` also protects against drifting back to the member-facing birthday subtitle, since that route intentionally serves the CSKH/overview context instead
+  - verification completed after this hardening pass:
+    - targeted Playwright smoke verification passed for all `5` routes with:
+      - `detailOpened: 0`
+      - `issueCount: 0`
+      - `missingTextRoutes: 0`
+      - `forbiddenTextRoutes: 0`
+      - `runtimeErrorRoutes: 0`
+    - smoke outputs were saved to:
+      - [.tmp/overview-dashboard-baseline-smoke/results.json](c:\xampp\htdocs\GYM\.tmp\overview-dashboard-baseline-smoke\results.json)
+  - current safe resume point:
+    - the main `dashboard` and remaining `overview/*` routes are now covered by the shared polish-smoke baseline
+    - the most visible top-of-funnel cluster is protected, so the next uncovered areas are mostly lower-traffic reports/settings/cashbook surfaces rather than core landing screens
+  - suggested next continuation:
+    - continue baseline hardening for the remaining `reports/*`, `cashbook/*`, or `settings/*` groups, or
+    - switch back to screenshot-driven UX polish now that the core landing/overview routes are also protected
+
+- `2026-04-06 21:44 Asia/Bangkok`:
+  - completed a full screenshot-driven font/i18n cleanup pass for the mixed Korean/runtime text issues that were still visible across portal list, settings, and detail surfaces
+  - root-cause fixes were applied at the rendering layer instead of only patching single screens:
+    - [apps/web/lib/i18n/display.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\display.ts)
+      - added `Tim ...` pattern handling so search placeholders no longer leak raw Vietnamese clones in Korean locale
+      - tightened fallback rendering so plain strings now still flow through translation instead of escaping as raw text
+    - [apps/web/components/table/search-bar.tsx](c:\xampp\htdocs\GYM\apps\web\components\table\search-bar.tsx)
+      - placeholders are now always translated at render time
+    - [apps/web/components/table/smart-data-table.tsx](c:\xampp\htdocs\GYM\apps\web\components\table\smart-data-table.tsx)
+      - table headers are now translated again at render time, which closes the remaining mixed labels like `line 코드` / `line명`
+    - [apps/web/components/portal/settings-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\settings-workspace.tsx)
+      - setting summary cards, field labels, placeholders, and helper text now pass through translation consistently, which removed the raw `Toan he thong` and similar leaks in settings pages
+    - [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts)
+      - added the missing exact entries that were driving the screenshots:
+        - `line`, `Ma line`, `Ten line`, `Ma NV`, `Ten mau`
+        - the affected search placeholders
+        - the remaining mixed detail labels caught by source audit
+        - the new attendance-machine operation copy
+  - expanded `Quan ly may cham cong` from status-only maintenance into actual operator actions:
+    - [apps/api/src/modules/system/system.dto.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\system\system.dto.ts)
+      - added maintenance actions:
+        - `PULL_ATTENDANCE_EVENTS`
+        - `PULL_MACHINE_CODES`
+        - `PUSH_STAFF_CODES`
+        - `PUSH_CUSTOMER_CODES`
+        - `SYNC_MACHINE_TIME`
+    - [apps/api/src/modules/system/system.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\system\system.service.ts)
+      - wired those actions to real branch data already in the system:
+        - staff `attendanceCode`
+        - member `fingerprintCode`
+        - recent `staffAttendanceEvents`
+      - `PULL_MACHINE_CODES` now exports the full staff/member roster for the machine branch, including rows still missing a code so the file is actually usable for offline code assignment
+    - [apps/web/components/portal/resource-detail-drawer.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+      - added the new action cards in the attendance-machine detail drawer
+      - added sync-result summary cards + preview table
+      - added CSV export download for `PULL_MACHINE_CODES`
+  - verification completed after the pass:
+    - web lint passed with the same `17 warnings` baseline and `0 errors`
+    - API build passed
+    - web build passed
+    - source audit is now fully clean:
+      - [.tmp/portal-source-i18n-audit-ko-after-font-fix.json](c:\xampp\htdocs\GYM\.tmp\portal-source-i18n-audit-ko-after-font-fix.json)
+      - `totalIssues: 0`
+    - targeted runtime audit on the exact screenshot route set passed clean after restarting the stale `6173` runtime:
+      - [.tmp/font-attendance-runtime-audit-6173-clean/results.json](c:\xampp\htdocs\GYM\.tmp\font-attendance-runtime-audit-6173-clean\results.json)
+      - `8 routes`, `0 issueRoutes`, `0 pageErrorRoutes`
+    - full Korean runtime audit across the whole portal also passed clean:
+      - [.tmp/portal-runtime-i18n-audit-ko-full-after-font-fix/results.json](c:\xampp\htdocs\GYM\.tmp\portal-runtime-i18n-audit-ko-full-after-font-fix\results.json)
+      - `86 routes`, `0 issueRoutes`, `0 mojibakeRoutes`, `0 console/page/request/response error routes`
+    - direct API verification for the new attendance-machine maintenance actions completed successfully on seeded machine `ATT-HQ-01`:
+      - [.tmp/attendance-machine-maintenance-verify.json](c:\xampp\htdocs\GYM\.tmp\attendance-machine-maintenance-verify.json)
+      - observed results:
+        - `PULL_MACHINE_CODES`: `21` exported rows (`5` staff ready codes, `16` member ready codes)
+        - `PUSH_STAFF_CODES`: `5` staff rows prepared for device sync
+        - `PUSH_CUSTOMER_CODES`: `16` member rows prepared for device sync
+        - `SYNC_MACHINE_TIME`: returned timezone `Asia/Bangkok`
+        - `PULL_ATTENDANCE_EVENTS`: returned `25` recent machine-linked attendance rows
+  - current safe resume point:
+    - the font/i18n leak pass is effectively complete for Korean locale at both source and runtime levels
+    - the attendance-machine module now has usable operator flows for export/sync/time actions, not just status toggles
+  - suggested next continuation:
+    - if desired, continue from here with richer machine-side assignment UX (for example a dedicated mapping dialog for filling missing attendance codes before push), or
+    - return to broader visual/reference polish now that the mixed-font/runtime-text problems have been cleaned end-to-end
+
+## 2026-04-06 22:12 Asia/Bangkok
+
+- continued the screenshot-driven Korean cleanup pass for the remaining `settings/*` pages that were still showing mixed or over-translated text in summary cards and form controls
+- fixed the root cause in [apps/web/components/portal/settings-workspace.tsx](c:\xampp\htdocs\GYM\apps\web\components\portal\settings-workspace.tsx)
+  - the left summary `Dia chi API` card now renders endpoint paths as raw technical values, so routes like `/settings/company`, `/settings/bank`, `/settings/e-invoice`, `/settings/print-templates`, `/settings/promotions`, `/settings/rounding`, etc. no longer get partially translated into broken mixed Korean paths
+  - added locale-aware form-value aliasing for the `settings/tags` text inputs so user-facing default tags display as Korean labels while the stored payload still keeps stable internal codes:
+    - `HOT` -> `핫 리드`
+    - `DEBT` -> `미수금`
+    - `VIP` -> `VIP 회원`
+    - `OVERDUE` -> `지연 후속조치`
+- tightened settings definitions in [apps/web/lib/module-config.ts](c:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+  - `settings/marketing.defaultChannel` now uses a finite localized select instead of a raw text field, removing the visible `ZALO` code leak from the form
+  - `settings/rounding.roundingMode` and `settings/rounding.taxRoundingMode` now use localized select values instead of exposing raw `NEAREST`
+  - `settings/custom-fields` no longer uses the bare `CRM` section heading; it now uses a fully translatable section label
+- extended the exact text bundle in [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts) for the last uncovered wording seen in the screenshots, including:
+  - `Tai chinh`
+  - `Khach hang va lead`
+  - `Dinh nghia cac field mo rong cho khach hang, lead va hop dong.`
+  - `Gan nhat`
+  - `Hoi vien VIP`
+  - `Cham soc qua han`
+- verification after the pass:
+  - `npm run lint:web` passed with the same existing `17 warnings` baseline and `0 errors`
+  - `npm run build:web` passed
+  - restarted the production web runtime on `6173` from the new build:
+    - [.tmp/settings-font-fix-server/web-6173.out.log](c:\xampp\htdocs\GYM\.tmp\settings-font-fix-server\web-6173.out.log)
+  - targeted Korean runtime audit for the exact screenshot route cluster passed clean:
+    - [.tmp/settings-font-fix-runtime-audit/results.json](c:\xampp\htdocs\GYM\.tmp\settings-font-fix-runtime-audit\results.json)
+    - `14 routes`, `0 issueRoutes`, `0 mojibakeRoutes`, `0 page/console/request/response error routes`
+  - DOM-level verification of real form control values also passed for the routes where screenshots highlighted raw control content:
+    - [.tmp/settings-font-form-values-verify.json](c:\xampp\htdocs\GYM\.tmp\settings-font-form-values-verify.json)
+    - confirmed:
+      - `/settings/tags` shows `핫 리드`, `미수금`, `VIP 회원`, `지연 후속조치`
+      - `/settings/marketing` shows localized select text instead of raw `ZALO`
+      - `/settings/rounding` shows localized select text instead of raw `NEAREST`
+      - `/settings/code-generation` still intentionally keeps raw prefixes like `CUS`, `LEAD`, `CTR`, `RCP`, `EXP`, `SES`, `PRD` because these are configuration codes rather than UI copy
+- current safe resume point:
+  - the remaining screenshot-reported mixed-font/mixed-language issues in the settings cluster are cleared at both text-render and form-control levels
+  - technical identifiers such as API endpoint paths and code prefixes are now handled intentionally instead of being incorrectly half-translated
+
+## 2026-04-06 22:55 Asia/Bangkok
+
+- continued the residual Korean font/i18n cleanup after another screenshot-driven report that mixed text still remained in runtime placeholders and hover titles outside the initial `settings/*` cluster
+- hardened the shared translation/rendering layer instead of patching individual pages:
+  - [apps/web/lib/i18n/display.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\display.ts)
+    - search-style strings like `Tim A, B, C` now translate each comma-separated segment independently, which cleared the mixed placeholders previously leaking tokens such as `tep`, `lop`, `goi class`, `dieu chuyen`, `bao luu`, `chuyen nhuong`, `vat tu`
+    - prefix-based pattern translation now matches case-insensitively, so normalized/runtime variants no longer slip past the translator
+  - [apps/web/components/table/smart-data-table.tsx](c:\xampp\htdocs\GYM\apps\web\components\table\smart-data-table.tsx)
+    - cell `title` attributes now use translated display values instead of raw backing data, which removed mixed hover text for items like payment methods, supply/deposit labels, and report categories
+  - [scripts/portal-runtime-i18n-audit.mjs](c:\xampp\htdocs\GYM\scripts\portal-runtime-i18n-audit.mjs)
+    - the runtime audit now inspects not only visible text but also form placeholders, selected option labels, input values, and `title` attributes, so future regressions of this exact class are easier to catch
+- added the last missing exact translations in [apps/web/lib/i18n/messages.ts](c:\xampp\htdocs\GYM\apps\web\lib\i18n\messages.ts) for the residual runtime leak set, including:
+  - placeholder nouns and phrases:
+    - `Tep dinh kem`
+    - `Lop`
+    - `Goi class`
+    - `Hop dong can nang cap`
+    - `Hop dong bao luu`
+    - `Hop dong chuyen nhuong`
+    - `Hop dong dieu chuyen chi nhanh`
+    - `Hop dong da huy`
+    - `Ma vat tu`
+    - `Ten vat tu`
+    - `Vat tu`
+  - hover / system values:
+    - `Khong bat buoc`
+    - `Bat buoc coc`
+    - `Ton on dinh`
+    - `payroll`
+    - `facility`
+    - `utilities`
+    - `equipment`
+    - `office`
+    - `contract`
+    - `membership`
+    - `training`
+  - demo/package labels still surfacing in titles on class/operations screens:
+    - `PT 12 Buoi`
+    - `PT 24 Buoi`
+    - `Gym 3 Thang`
+    - `12 + 2 buoi`
+    - `24 + 4 buoi`
+    - `90 buoi`
+    - `Personal Training`
+    - `Gym Membership`
+- verification after the pass:
+  - `npm run lint:web` passed with the same `17 warnings` baseline and `0 errors`
+  - `npm run build:web` passed twice after the translation additions
+  - restarted the production web runtime on `6173` from the latest build:
+    - [.tmp/font-fix-final-pass-server/web-6173.out.log](c:\xampp\htdocs\GYM\.tmp\font-fix-final-pass-server\web-6173.out.log)
+  - targeted residual-runtime scan passed clean on the previously failing route cluster:
+    - [.tmp/font-fix-final-pass-runtime-audit/results.json](c:\xampp\htdocs\GYM\.tmp\font-fix-final-pass-runtime-audit\results.json)
+    - `11 routes`, `0 routes with hits`
+  - broad global runtime scan for the same class of residual font/i18n leaks also passed clean:
+    - [.tmp/font-fix-global-runtime-scan/results.json](c:\xampp\htdocs\GYM\.tmp\font-fix-global-runtime-scan\results.json)
+    - `86 routes`, `0 issueRoutes`
+- current safe resume point:
+  - the remaining Korean mixed-font/mixed-language UI leaks that were still visible in search placeholders and hover titles are now cleaned beyond the earlier `settings/*` pass
+  - what still appears in Latin on runtime screens should now mostly be treated as intentional proper nouns, tenant data, branch names, emails, or user-generated notes rather than untranslated system UI copy
+
+## 2026-04-06 23:00 Asia/Bangkok
+
+- end-of-day handoff checkpoint saved after the final Korean font/i18n cleanup sweep
+- latest verified state before stopping:
+  - web runtime on `6173` is running from the newest production build
+  - residual targeted runtime scan is clean:
+    - [.tmp/font-fix-final-pass-runtime-audit/results.json](c:\xampp\htdocs\GYM\.tmp\font-fix-final-pass-runtime-audit\results.json)
+  - global runtime scan is clean across the portal:
+    - [.tmp/font-fix-global-runtime-scan/results.json](c:\xampp\htdocs\GYM\.tmp\font-fix-global-runtime-scan\results.json)
+- safe resume point for tomorrow:
+  - no urgent Korean font/i18n UI leak remains in the audited portal routes
+  - if continuing tomorrow, start from new screenshot-driven QA only for any newly reported route, otherwise move back to broader UX/reference polish or machine-assignment UX follow-up
+- stop note:
+  - progress has been saved to this file and the current runtime/build artifacts are already on disk; no extra rollback or cleanup is needed before resuming
+
+## Main Things To Continue Next
+
+1. Core clone/deepening work for the current scope is effectively complete; the next pass is optional hardening rather than missing-module coverage.
+2. If needed, keep the broadened all-role create-dialog crawler as the regression baseline and rerun it after future permission/catalog/polish waves rather than only after large backend changes.
+3. Continue screenshot-by-screenshot visual polish against `GYM.docx` and Gymmaster references on the next remaining medium-traffic screens after the Pro Shop wave, because the remaining work is now mostly UX/text refinement instead of missing logic/runtime coverage.
+
+## Notes
+
+- There is no `.git` repository in this workspace right now, so progress is being tracked through this file and the code changes already saved on disk.
+- `nest start --watch` was unstable during this pass because the running process could restart while `dist` was being rebuilt; live API verification was completed successfully using `build + start:prod` on port `3001`.
+- For the web runtime on Windows, the most reliable detached production start flow in this workspace is the direct node invocation `node .\\node_modules\\next\\dist\\bin\\next start --port 6173`; the detached `npm run start` / `npx next start` variants can print `Ready` into the log even after the listener has already dropped.
+- After this i18n stabilization pass, changing locale inside the app should update immediately without `Ctrl + F5`; a normal `F5` is only needed after a new web build/server restart.

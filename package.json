@@ -1,0 +1,32 @@
+{
+  "name": "fitness-management",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-branch fitness center management platform",
+  "scripts": {
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:api": "npm --prefix apps/api run start:dev",
+    "dev": "npm run dev:web",
+    "build:web": "npm --prefix apps/web run build",
+    "install:all": "npm install && npm --prefix apps/web install && npm --prefix apps/api install && npm --prefix publish/web install && npm --prefix publish/api-worker install",
+    "deploy:pages": "npm --prefix publish/web run deploy",
+    "deploy:web:worker": "npm --prefix publish/web run deploy:worker",
+    "deploy:worker": "npm --prefix publish/api-worker run deploy",
+    "db:seed": "node publish/data/import-to-neon.mjs",
+    "build:api": "npm --prefix apps/api run build",
+    "lint:web": "npm --prefix apps/web run lint",
+    "lint:api": "npm --prefix apps/api run lint",
+    "license:tool": "npm --prefix apps/api exec -- tsx tools/license-keygen/cli.ts",
+    "db:generate": "npm --prefix apps/api run db:generate",
+    "db:migrate": "npm --prefix apps/api run db:migrate",
+    "db:seed:api": "npm --prefix apps/api run db:seed"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.2"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
+    "@prisma/client": "^6.19.2",
+    "bcryptjs": "^3.0.3"
+  }
+}

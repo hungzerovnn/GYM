@@ -1,0 +1,889 @@
+1
+API Key
+API URL
+Active
+Admin login
+App ID
+App URL
+App secret
+Audience
+Audience rule
+Audit log
+Audit log create, update, delete, login, export va cap nhat cau hinh.
+Audit log create, update, delete, login, export.
+Avatar URL
+Ban hang
+Ban hang Pro Shop
+Bang cong theo ngay, vao/ra, di muon, thieu checkout va gio lam cua tung nhan vien.
+Bang cong theo ngay, vao/ra, di muon, thieu checkout va gio lam theo nhan vien.
+Bang gia
+Bang gia Pro Shop
+Bang gia ban le va gia uu dai theo san pham.
+Bang gia ban le, gia von va ton kho san pham Pro Shop.
+Bang gia dich vu
+Bang gia membership, PT, combo, buoi KM va quy tac gia tri con lai.
+Bang su kien vao/ra cua nhan vien, ho tro them sua xoa va audit lich su dieu chinh cong.
+Bao cao
+Bao cao Booking
+Bao cao Booking PT
+Bao cao Checkin
+Bao cao KPI
+Bao cao Lead
+Bao cao chi thu
+Bao cao coc
+Bao cao cong no
+Bao cao danh gia nhan vien
+Bao cao doanh thu the luot
+Bao cao huan luyen vien
+Bao cao phan bo
+Bao cao thu chi
+Bao cao tien goi dau
+Bao cao trang thai Lead
+Bao gia
+Bao luu hop dong
+Bat
+Bat OTP login
+Bat auto tag
+Bat kenh Email
+Bat kenh SMS
+Bat kenh Zalo
+Bat loyalty
+Bien OTP
+Bieu do
+Bieu do doanh thu theo chi nhanh va goi dich vu.
+Bieu do doanh thu, hoi vien moi va nguon lead.
+Bo tag
+Bo tag mac dinh cho lead nong, cong no, VIP va follow-up qua han.
+Bo tag mac dinh, auto-tag lead nong, cong no, VIP va follow-up qua han.
+Bo tri chi nhanh, line, phong tap va suc chua phuc vu booking.
+Bonus buoi
+Bonus ngay
+Bonus sinh nhat (%)
+Book toi da
+Booking CSKH
+Budget
+Budget du kien
+Buoi KM
+Buoi bonus
+Buoi con lai
+Buoi da dung
+Buoi hoan thanh
+Buoi tap
+CMND / CCCD
+CRM
+CSDL khach hang
+Cancelled
+Cap moi va quan ly tung PostgreSQL rieng cho moi khach hang/tenant.
+Card
+Cau hinh
+Cau hinh Email
+Cau hinh SMS
+Cau hinh SMS - Email - Zalo
+Cau hinh SMS-Email-Zalo
+Cau hinh Tag
+Cau hinh Zalo
+Cau hinh bank
+Cau hinh chien dich, kenh gui, template va quota truyen thong.
+Cau hinh chung
+Cau hinh hoa don dien tu va thong tin xuat hoa don.
+Cau hinh lam tron so
+Cau hinh sinh ma
+Cau hinh truong du lieu, hien thi form va mo rong thong tin nghiep vu.
+Cham cong lop
+Cham cong nhan vien
+Cham cong nhan vien, may van tay va ca lam.
+Cham soc / lich hen
+Che do lam tron
+Check-in
+Check-out
+Chi nhanh
+Chi nhanh NH
+Chi nhanh mac dinh
+Chi nhanh, gio mo cua, so booking va quy tac coc.
+Chi phi van hanh, marketing va thanh toan nha cung cap.
+Chi phi van hanh, marketing, nha cung cap va phe duyet thanh toan.
+Chi tieu va ket qua KPI theo nhan vien.
+Chien dich
+Chien dich marketing, kenh va mau gui tu dong.
+Chieu in
+Cho phep gui hang loat
+Chu tai khoan
+Chuc danh
+Chung tu ban hang co dong san pham, tong tien, thanh toan va thu ngan.
+Chung tu tra hang / hoan tien co dong san pham, so tien va phe duyet.
+Chuong trinh khuyen mai
+Chuyen chi nhanh
+Chuyen doi hop dong
+Chuyen mon
+Chuyen nhuong / doi chu hop dong va lich su dieu chinh lien quan.
+Chuyen nhuong hop dong
+Co
+Co lich hen
+Cold
+Completed
+Con lai
+Con no
+Cong
+Cong no
+Cong no hoi vien
+Cong no hoi vien, hop dong va phieu thu.
+Cong no hop dong, gia tri con lai va canh bao can thu.
+Cong viec follow-up, lich hen va canh bao qua han.
+Connected
+Cooldown gui lai (giay)
+Da check-in
+Da chuyen doi
+Da diem danh
+Da dung
+Da dung / Tong
+Da hen
+Da hoan thanh
+Da thanh toan
+Da thu
+Da tra
+Dang giu
+Dang ky HD Loyalty
+Dang ky dich vu
+Danh muc Line
+Danh muc bai tap
+Danh muc dich vu membership, PT va class.
+Danh muc hang hoa, gia ban va ton kho.
+Danh muc kenh lead / referral / walk-in / ads cho CRM hoi vien.
+Danh muc kenh lead / referral / walk-in.
+Danh muc line, khu vuc va phong tap.
+Danh muc line, loai lop, khu vuc va cau hinh van hanh phong tap.
+Danh muc lop, goi class va cac line dang van hanh.
+Danh muc lop, line va nhom dich vu dang mo.
+Danh muc phan loai hoi vien theo nhom.
+Danh muc phan nhom hoi vien va nhan dien mau sac.
+Danh muc san pham, ton kho, gia ban va tinh trang ban hang.
+Danh muc uu dai cho hoi vien loyalty.
+Danh sach Stage
+Danh sach book lich
+Danh sach booking phat sinh tu CSKH.
+Danh sach booking theo ngay, lop, PT nhom va trang thai check-in.
+Danh sach dat lich lop / PT nhom theo ngay.
+Danh sach dich vu, bang gia va goi tap dang ap dung.
+Danh sach doi tac, nha cung cap va thong tin lien he phuc vu Pro Shop.
+Danh sach giao an dang su dung cho hoc vien.
+Danh sach giao an, huan luyen vien phu trach va tai nguyen lien quan.
+Danh sach hoi vien
+Danh sach hoi vien sap sinh nhat de CSKH chu dong chuc mung va gui uu dai.
+Danh sach hop dong
+Danh sach hop dong con no, muc uu tien thu va canh bao den han.
+Danh sach hop dong huy / dong va lich su thao tac lien quan.
+Danh sach hop dong sap het han can gia han.
+Danh sach hop dong sap het han va xu ly gia han / tiep tuc goi tap.
+Danh sach lead, pipeline va lich hen tu van.
+Danh sach lead, pipeline, lich hen va nhat ky cham soc.
+Danh sach lop
+Danh sach sinh nhat sap toi de CSKH chu dong cham soc va gui uu dai.
+Danh sach sinh nhat sap toi de CSKH chu dong.
+Danh sach tra hang, dong san pham, hoan tien, dieu chinh ton kho va lenh in phieu tra.
+Danh sach tra hang, hoan tien va dieu chinh ton.
+Dashboard KPI ngay / thang
+Dashboard tong quan
+Dat lich PT, check-in buoi tap, ket qua buoi va tru so buoi con lai.
+De trong se mac dinh http://localhost:6273
+Dem rieng theo chi nhanh
+Den han hom nay
+Den ngay
+Di muon
+Dia chi
+Dich vu
+Diem TB
+Diem chao mung
+Diem thuong gioi thieu
+Diem tich luy, quy doi va lich su diem.
+Dien thoai
+Dieu chinh cham cong
+Dieu chuyen hoi vien giua cac chi nhanh.
+Dieu kien
+Dinh dang ngay
+Dinh kem Booking
+Dinh nghia cac field mo rong cho CRM, Lead va Hop dong.
+Disconnected
+Do dai OTP
+Doanh thu
+Doanh thu chi nhanh
+Doanh thu the
+Doanh thu the luot va phat sinh giao dich.
+Doanh thu the luot, giao dich phat sinh va tong hop thu theo ky.
+Doanh thu the/gym membership, so phieu thu va gia tri giao dich binh quan.
+Doanh thu theo chi nhanh
+Doc
+Doi tuong
+Doi tuong nhan
+Don gia
+Don vi
+Don vi hoa don
+Don vi lam tron
+Don vi tien te
+Dong bo
+Dong cua
+Dong san pham
+Draft
+Email
+Email admin
+Email cong ty
+Email nhan hoa don
+Email thong bao noi bo
+Empty
+Encryption
+Entity
+Error
+Expired
+Face
+Field mo rong hop dong
+Field mo rong khach hang
+Field mo rong lead
+Fingerprint
+Follow-up
+Footer ban hang
+Footer bao cao
+Footer phieu chi
+Footer phieu thu
+Footer tra hang
+From email
+From name
+Ghi chu
+Ghi chu cham soc
+Ghi chu chung
+Ghi chu dich vu
+Ghi chu lien quan goi tap / yeu cau dich vu
+Ghi chu noi bo
+Ghi chu rich text
+Gia
+Gia ban
+Gia goc
+Gia han hop dong
+Gia nhap
+Gia tri HD con lai
+Gia tri HD toi thieu
+Gia tri TB
+Gia tri con lai
+Gia tri goc, da su dung, con lai va cong no.
+Gia tri goc, gia tri da dung, gia tri con lai va cong no.
+Gia tri hop dong con lai
+Gia, bonus, so buoi va quy tac gia tri con lai.
+Giam gia (%)
+Giam tru %
+Giam tru tien
+Giao an
+Giao dich ban hang Pro Shop, dong san pham, thu ngan va lenh in hoa don ban le.
+Gio
+Gioi han upload (MB)
+Gioi tinh
+Goi dich vu
+Goi tap - qua trinh tap
+HD active
+HD con no
+Han diem (ngay)
+Hang hoa
+Hang thanh vien
+Hanh dong
+He thong
+Header ban hang
+Header bao cao
+Header hop dong
+Header phieu chi
+Header phieu thu
+Header tra hang
+Header/footer hop dong, phieu thu, phieu chi, ban hang, tra hang va quy tac in mac dinh.
+Hen tiep theo
+Hien nguoi xuat
+Hien thi
+Hien thoi gian xuat
+Hieu luc OTP (phut)
+Hieu suat PT, lich day va buoi hoan thanh.
+Hieu suat PT, tong buoi, so khach dang phu trach va ket qua huan luyen.
+Ho so Lead
+Ho so cong ty
+Ho so hoi vien, trang thai, cong no, lich su mua goi va thong tin lien he.
+Ho so hoi vien, trang thai, nhom va nguon khach.
+Ho so loyalty, uu dai va tich diem khach hang.
+Ho so nhan vien, login he thong, vai tro, chi nhanh va trang thai tai khoan.
+Ho so nhan vien, user login, vai tro va chi nhanh.
+Ho ten
+Ho ten admin
+Ho va ten
+Hoan thanh
+Hoat dong kinh doanh
+Hoi vien
+Hoi vien / khach hang
+Hoi vien active
+Hoi vien co tap
+Holding
+Hom nay
+Hop dong
+Hop dong / Goi tap
+Hop dong con no va gia tri hop dong con lai.
+Hop dong the
+Hot
+Hotline
+Huan luyen vien
+Huy
+Huy hop dong
+ID
+IP / Domain
+Import
+In bo loc
+In chu ky
+In logo
+Inactive
+KPI
+KPI doanh thu, lead va hop dong.
+KPI nhan vien
+Kenh
+Kenh gui
+Kenh mac dinh
+Ket noi
+Ket qua
+Ket qua lien he gan nhat
+Khac
+Khach dang phu trach
+Khach hang
+Khach hang / Hoi vien
+Khach hang / NCC
+Khach hang convert
+Khach mua
+Khach mua hang va nha cung cap cho pro shop.
+Khach nhan hoan
+Khan tap
+Kho giay
+Khong
+Khung gio
+Khuyen mai, uu dai, bonus buoi va bonus ngay.
+Kich hoat
+Ky hieu
+Lam tron
+Lam tron thue
+Lan sync cuoi
+Lead / CRM
+Lead can follow-up, lich hen sap toi va cac dau viec dang qua han.
+Lead chuyen doi
+Lead moi
+Lead nong
+Lead, hop dong, doanh thu va % KPI theo nhan vien.
+Lead, hop dong, doanh thu va % hoan thanh KPI theo nhan vien.
+Lich Line
+Lich PT
+Lich PT nhom
+Lich PT nhom, dat cho va suc chua.
+Lich PT nhom, dat cho, suc chua va theo doi tham gia.
+Lich PT, dat lich, check-in va ket qua buoi tap.
+Lich hen
+Lich line va phan bo theo khu vuc.
+Lich lop
+Lich nhac chuc mung sinh nhat va uu dai.
+Lich nhac sinh nhat, doi tuong can CSKH va thong tin hoi vien active.
+Lich su Penalty
+Lich su chuyen nhuong / doi chu hop dong.
+Lich su thao tac
+Lich su thao tac create / update / delete / login / export.
+Lich tap
+Lich tap, check-in va tru so buoi con lai.
+Lich van hanh lop theo ngay, khung gio, line va nhan su phu trach.
+Lich van hanh lop va phan bo khung gio.
+Lien he
+Loai
+Loai chi
+Loai coc
+Loai goi
+Loai hop dong
+Loai su kien
+Locked
+Login cuoi
+Logo URL
+Loi nhuan
+Loi nhuan thuan
+Luot dang ky
+Luot lich tap
+Ly do / ghi chu
+Ma
+Ma CN
+Ma DV
+Ma GD
+Ma HD cu
+Ma NCC
+Ma PT
+Ma buoi
+Ma cham cong
+Ma chi nhanh
+Ma giao dich
+Ma goi
+Ma hang
+Ma hoi vien / ma khach hang
+Ma hop dong
+Ma khach hang
+Ma lead
+Ma may
+Ma phieu
+Ma phieu tra
+Ma so thue
+Ma tenant
+Ma tu
+Ma vai tro
+Ma van tay
+Ma van tay / ma check-in
+Mac dinh
+Maintenance
+Manual
+Marketing
+Mat khau
+Mat khau CSDL
+Mat khau admin
+Mau OTP
+Mau giao an / template huan luyen.
+Mau giao an / template noi dung huan luyen co the tai su dung.
+Mau in hop dong, phieu thu, phieu chi, ban hang, tra hang va xem truoc khi in.
+Mau in hop dong, phieu thu, phieu chi, ban hang, tra hang va xem truoc mau in.
+Mau khuyen mai, uu dai, bonus buoi / ngay va thong diep gui tu dong.
+Mau nhac lich
+Mau sinh nhat
+Mau so
+Mau xuat bao cao, header/footer, bo loc mac dinh va cau hinh in.
+Mau xuat bao cao, tieu de, header/footer, bo loc va xem truoc khi in.
+May
+May cham cong
+May in mac dinh
+Mo cua
+Mo hop dong moi va dang ky goi dich vu cho hoi vien.
+Mo hop dong moi, dang ky goi tap va lien ket thanh toan hoi vien.
+Mo rong truong du lieu cho CRM va hoi vien.
+Mo ta
+Mo ta ly do dieu chinh cong de audit sau nay
+Mo ta phu
+Mo ta uu dai
+Mobile
+Module
+Moi
+Muc do
+Muc phat
+Muc phat hu muon, vang mat, PT absent va gioi han phat.
+Muc phat toi da / ngay
+Muc phat, vi pham va quy tac penalty.
+NV phu trach
+Nam
+Nang cap goi tap, cap nhat gia chenhlech va quy doi so buoi.
+Nang cap hop dong
+Ngang
+Nganh nghe
+Ngay
+Ngay KM
+Ngay ban
+Ngay bat dau
+Ngay bat dau tap
+Ngay cap
+Ngay chi
+Ngay co cong
+Ngay dang ky
+Ngay du kien
+Ngay het han
+Ngay het han tap
+Ngay ket thuc
+Ngay nhan
+Ngay nhap
+Ngay sinh
+Ngay tao
+Ngay thu
+Ngay tra
+Nghe nghiep / nganh nghe
+Nghiep vu
+Nguoi dung
+Nguoi gioi thieu
+Nguoi lap phieu
+Nguoi lien he
+Nguoi phe duyet
+Nguoi thu
+Nguon
+Nguon du lieu
+Nguon khach
+Nguon khach hang
+Nguon lead
+Nguon thu
+Nguong Gold
+Nguong Silver
+Nguong VIP
+Nguong hang thanh vien va uu dai sinh nhat / referral.
+Nguong hang thanh vien, uu dai sinh nhat, referral va quy tac nhan dien loyalty.
+Nha cung cap
+Nhan
+Nhan dien
+Nhan vien
+Nhan vien phu trach
+Nhan vien thu
+Nhap dia chi chi tiet
+Nhap email
+Nhap hang
+Nhap hang, tong tien, trang thai va thong tin nha cung cap.
+Nhap ho va ten khach hang
+Nhap nguoi lien he
+Nhap so dien thoai
+Nhap so dien thoai nguoi lien he
+Nhap so giay to
+Nhap so the khach hang
+Nhat ky penalty, vi pham va dieu chinh lich.
+Nhat ky penalty, vi pham, cap nhat lich va cac thao tac lien quan den dat lich.
+Nhom
+Nhom hang
+Nhom khach
+Nhom khach hang
+Nhu cau
+No qua han
+Noi cap
+Noi cap giay to
+Noi dung
+Noi dung chung
+Noi dung giao dich
+Nu
+OA / App
+OA ID
+OA name
+OA, access token, OTP login va template tin nhan van hanh.
+OTP
+OTP Template ID
+Overdue
+PT
+PT - Training
+PT active
+Paid
+Partial
+Password
+Paused
+Pending
+Phan bo doanh thu, nhan su va tai nguyen theo chi nhanh / line.
+Phan bo hoc vien, PT va line/phong tap.
+Phan bo hoi vien, PT, hop dong, tu do va lich tap theo tung chi nhanh.
+Phan bo lich theo line, line booking va cong suat phong tap.
+Phan bo trang thai lead, nguon lead va kha nang chuyen doi.
+Phan tich pipeline lead, muc do nong, tuoi lead va follow-up qua han.
+Phap nhan / ten xuat hoa don
+Phat sinh ban hang, phieu thu va doanh thu shop.
+Phe duyet
+Phi PT absent
+Phi huy muon
+Phi vang mat
+Phieu chi
+Phieu nhap
+Phieu nhap hang Pro Shop, nha cung cap va tong gia tri nhap.
+Phieu nhap hang, NCC va cap nhat ton kho.
+Phieu thu
+Phieu thu lien ket hop dong, khach hang, phuong thuc va nhan vien thu.
+Phu trach
+Phuong / Xa
+Phuong / xa
+Phuong thuc
+Phuong thuc hoan tien
+Phuong thuc thanh toan
+Phuong thuc xac thuc
+Pipeline lead, lich hen, nguon lead va ket qua cham soc.
+Port
+Pro Shop
+Prospect
+Provider
+Provider, sender, quota va template OTP / reminder / birthday.
+Provider, thong tin xuat hoa don va dia chi nhan thong bao.
+QR template / URL
+Qua han
+Qua han CSKH
+Quan / Huyen
+Quan / huyen
+Quan ly chi nhanh
+Quan ly hoi vien, hop dong, cong no va thong tin lien he day du theo ho so hoi vien.
+Quan ly hop dong, so buoi con lai, thanh toan va gia tri con lai.
+Quan ly kenh SMS / Email / Zalo, OTP va mau thong bao van hanh.
+Quan ly kenh giao tiep va OTP.
+Quan ly ma tu, don gia va tinh trang su dung.
+Quan ly mau bao cao
+Quan ly mau in
+Quan ly may van tay
+Quan ly nguoi dung
+Quan ly nhom hoi vien, phan loai doi tuong va quy tac nhan dien.
+Quan ly profile PT va chuyen mon.
+Quan ly referral, walk-in, social, ads.
+Quan ly stage, cap do va lo trinh huan luyen.
+Quan ly stage, cap do, nhom phu trach va mo ta quy trinh huan luyen.
+Quan ly tich diem
+Quan ly tinh trang tu, phi thue, tien coc va lich su su dung.
+Quan ly tu do, tien coc va lich su su dung.
+Quota / ngay
+Quy doi
+Quy tac
+Quy tac coc
+Quy tac lam tron so tien va hoa don.
+Quy tac lam tron so tien, hoa don va hien thi bao cao.
+Quy tac lam tron so tien, thue va so chu so hien thi.
+Quy tac penalty, muc phat va canh bao vi pham dat lich / cham cong.
+Quy tac quy doi va chuyen doi goi dich vu.
+Quy tac sinh ma hoi vien, hop dong, thu chi, booking va cac danh muc chung.
+Quy tac tao ma khach hang, hop dong, phieu thu.
+Quyen
+Refresh token
+Rented
+Returned
+Rule GT con lai
+SDT lien he
+SL
+SMTP / provider, tai khoan gui va template email van hanh.
+SMTP host
+Sale
+San pham
+Sap den han
+Sap het han
+Sap toi
+Scale tien te
+Scheduled
+Secret key
+Sender
+Si so lop, checkin lop va tinh trang tham gia.
+Sinh ma tu dong
+Sinh nhat hoi vien
+So buoi
+So buoi da dung, con lai va tien do tap.
+So buoi, buoi hoan thanh va so khach dang phu trach.
+So chi nhanh
+So chu so dem
+So chu so hien thi
+So diem / 1.000 VND
+So dien thoai
+So dien thoai 2
+So dien thoai 3
+So dien thoai phu
+So do Line
+So do phong / line phuc vu booking.
+So lan sai toi da
+So luong Profile
+So ngay nhac
+So phieu thu
+So phut duoc phep tre
+So quy
+So quy Pro Shop
+So quyen
+So sanh doanh thu membership, PT, coc va cac nguon thu giua cac chi nhanh.
+So tai khoan
+So test override
+So the / thong tin covid
+So tien
+So tien / 1 diem
+So user
+Su dung tai khoan
+Su kien vao/ra, chinh cong tay va audit lich su sua.
+Suspended
+Syncing
+TG coc toi da
+TT thanh toan
+Tag VIP
+Tag cong no
+Tag follow-up qua han
+Tag hoi vien, lead va phan loai noi bo.
+Tag lead nong
+Tai khoan
+Tai khoan gui
+Tai khoan he thong, reset mat khau, role va branch scope.
+Tai khoan he thong, vai tro va reset mat khau.
+Tai khoan ngan hang va cau hinh thanh toan.
+Tai khoan ngan hang, chuan hien thi va tham so thanh toan van hanh.
+Tai khoan nhan su, trang thai, chi nhanh va chuc danh.
+Tai khoan nhan tien, noi dung chuyen khoan va template QR.
+Tai lieu, file dinh kem lien quan booking.
+Tan suat den tap, so buoi check-in va muc do hoan thanh cua hoi vien.
+Tat
+Template
+Template giao an
+Template gui tin chuc mung sinh nhat cho hoi vien.
+Ten CSDL
+Ten NCC
+Ten chi nhanh
+Ten chuong trinh
+Ten cong ty
+Ten cong ty, logo, timezone va thong tin doanh nghiep.
+Ten dich vu
+Ten don vi
+Ten goi
+Ten hang
+Ten he thong
+Ten he thong, timezone, currency va gioi han upload.
+Ten mau
+Ten may
+Ten ngan hang
+Ten nguon
+Ten nhom
+Ten tenant
+Ten tu
+Ten vai tro
+Thanh toan
+The / Covid
+The khach hang
+The/Covid
+Them sua xoa su kien vao/ra, doi nguon du lieu va theo doi lich su audit cho HR.
+Theo doi booking phat sinh tu CSKH, lich hen va nhac viec cham soc.
+Theo doi cac hop dong tam dung, bao luu.
+Theo doi checkin hoi vien va tan suat den tap.
+Theo doi chi phi van hanh, marketing, facility va phe duyet.
+Theo doi chi tieu KPI va doanh thu nhan vien.
+Theo doi coc giu do, coc tu do va tinh trang hoan coc.
+Theo doi diem danh tung buoi, ty le tham gia va tinh trang check-in.
+Theo doi hoi vien active, prospect, inactive va cac canh bao lien quan.
+Theo doi hoi vien dang active, prospect va inactive.
+Theo doi hoi vien loyalty, uu dai tich diem va phan nhom khach hang trung thanh.
+Theo doi hoi vien, hop dong va giao dich duoc dieu chuyen giua cac chi nhanh.
+Theo doi hop dong da huy / dong.
+Theo doi hop dong tam dung, bao luu va ngay kich hoat lai.
+Theo doi hop dong, so buoi, thanh toan, cong no va trang thai kich hoat.
+Theo doi lead, hop dong, doanh thu va % KPI tren mot man hinh tong hop.
+Theo doi so buoi da dung, con lai va tien do training tren he thong.
+Theo doi toan bo hop dong, so buoi va cong no.
+Thiet bi check-in, cong ket noi, IP/Domain va tinh trang dong bo.
+Thiet bi checkin, IP/Domain va dong bo.
+Thiet bi ket noi check-in tai chi nhanh.
+Thiet lap
+Thiet lap Penalty
+Thiet lap cong ty
+Thiet lap hoa don dien tu
+Thiet lap truong du lieu
+Thieu checkout
+Thoi diem
+Thoi gian
+Thoi han
+Thoi luong
+Thon, xom, so nha / Dia chi
+Thong bao
+Thong ke si so lop, check-in lop va tinh trang tham gia theo buoi.
+Thong ke tong hop theo tung chi nhanh.
+Thong so in
+Thong tin Lead
+Thong tin bo sung cho ho so hoi vien
+Thong tin chi nhanh, khung gio, gioi han booking va quy tac coc.
+Thong tin chi nhanh, thoi gian mo cua va quy tac book / coc.
+Thong tin chung
+Thong tin doanh nghiep, app name, timezone, currency va logo he thong.
+Thong tin doanh nghiep, lien he, logo va chuan hien thi he thong.
+Thong tin gui hoa don, email thong bao va tham so van hanh hoa don dien tu.
+Thong tin khac
+Thong tin khach hang
+Thong tin lien he nha cung cap va ghi chu mua hang.
+Thong tin xuat hoa don
+Thu chi rieng cho pro shop.
+Thu chi, loi nhuan tam tinh va dong tien cua phan he Pro Shop.
+Thu cong
+Thu ngan
+Thu tien hop dong, coc, the luot va cac nguon thu van hanh.
+Thu tien hop dong, the, coc va doanh thu khac.
+Thu vien bai tap, dung cu tap va tai nguyen ho tro PT trien khai giao an.
+Thu vien bai tap, huong dan va ghi chu PT.
+Thu, chi va loi nhuan tam tinh trong ky.
+Thu, chi, loi nhuan tam tinh trong ky.
+Tich diem
+Tien coc
+Tien coc dang giu, da tra va qua han.
+Tien do su dung goi tap, buoi con lai, gia tri con lai va ngay het han.
+Tien to buoi tap
+Tien to campaign
+Tien to campaign, default channel, quota gui va audience rule.
+Tien to hop dong
+Tien to khach hang
+Tien to lead
+Tien to ma
+Tien to ma va quy tac dem so cho hoi vien, hop dong, thu chi va san pham.
+Tien to noi dung CK
+Tien to phieu chi
+Tien to phieu thu
+Tien to san pham
+Tien to so hoa don
+Tieu de
+Tieu de mac dinh
+Tieu de xuat bao cao, header/footer, chieu in va quy tac hien thi.
+Timezone
+Tinh / Thanh pho
+Tinh / thanh pho
+Token
+Ton kho
+Ton kho, gia von, gia ban va trang thai mat hang.
+Ton toi thieu
+Tong GT con lai
+Tong PT
+Tong buoi
+Tong chi
+Tong chi phi
+Tong cong no
+Tong dau viec
+Tong doanh thu
+Tong giam
+Tong gio lam
+Tong hoan
+Tong hoan (de trong de auto tinh)
+Tong hop KPI, doanh thu, lead chuyen doi va hieu suat nhan vien.
+Tong hop Sale goi dich vu
+Tong hop booking PT va ty le hoan thanh.
+Tong hop booking PT, huan luyen vien phu trach va ty le hoan thanh buoi tap.
+Tong hop checkin hoi vien, tan suat tap va xu huong tham gia.
+Tong hop chi nhanh
+Tong hop danh gia, KPI va hieu suat nhan vien.
+Tong hop doanh thu sale, hop dong moi va hieu suat theo nhan vien / goi tap.
+Tong hop doanh thu theo chi nhanh va loai dich vu.
+Tong hop doanh thu, chi phi, lead, hoi vien va hieu suat van hanh theo chi nhanh.
+Tong hop doanh thu, hop dong, lead chuyen doi va cong no theo sale.
+Tong hop doanh thu, lead, backlog va performance index theo nhan vien.
+Tong hop doanh thu, lead, hop dong va nhac viec van hanh tren mot man hinh.
+Tong hop doanh thu, van hanh va hieu qua theo tung chi nhanh.
+Tong hop dong
+Tong hop hoi vien, hop dong, lead, doanh thu, cong no va cac canh bao van hanh theo chi nhanh.
+Tong hop hop dong con no, gia tri con lai va nhac viec can thu.
+Tong hop lead moi, da cham soc va chuyen doi.
+Tong hop lead, nguon lead va nhan vien phu trach.
+Tong hop lead, nguon lead, nhan vien phu trach va ty le chuyen doi.
+Tong hop lich hen, follow-up, dau viec qua han va nhac viec CSKH.
+Tong hop sale theo goi va nhan vien.
+Tong hop tai trong PT, so buoi day, completion rate va doanh thu ho tro.
+Tong hop van hanh, doanh thu va lead theo ngay.
+Tong lead
+Tong lead, lead moi, cham soc va chuyen doi.
+Tong lich dat
+Tong nhan vien
+Tong quan
+Tong quan doanh thu, lead va hop dong.
+Tong quan kenh gui, OTP va quota van hanh theo tung kenh.
+Tong thu
+Tong tien
+Tong tien (de trong de auto tinh)
+Tong tien coc dang giu, da tra va qua han.
+Tra cuu booking va file dinh kem phat sinh trong qua trinh van hanh lop / PT.
+Tra hang
+Tra hang Pro Shop
+Trang thai
+Trang thai hoi vien
+Trang thai lead, pipeline va ty le chuyen doi.
+Tru buoi
+Tu do
+Tu dong ap dung
+Tu dong lay theo username neu de trong
+Tu ngay
+Tu van
+Tuan nay
+Tuy chon
+Ty le tich diem, quy doi diem va diem thuong mac dinh.
+Ty le tich diem, quy doi diem va tham so loyalty theo chi nhanh / toan he thong.
+Unpaid
+Upload max MB
+User CSDL
+Username
+Username admin
+Uu dai
+Uu dai Loyalty
+Uu dai mac dinh, bonus buoi / ngay va quy tac auto-apply.
+VAT
+Vai tro
+Vai tro, mo ta va ma tran quyen.
+Van hanh
+Vang mat
+Vat tu khan tap, ton kho va cap phat noi bo.
+Vat tu khan tap, ton kho, gia von va xuat dung noi bo.
+Vi tri
+Warm
+Website
+Xac thuc
+Xu ly chuyen doi goi, quy doi gia tri con lai va cap nhat lich su.
+Xu ly nang cap goi tap va chenhlech gia tri.
+Yeu cau coc
+ZNS API URL

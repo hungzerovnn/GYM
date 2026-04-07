@@ -1,0 +1,13 @@
+{
+  "name": "fitflow-publish-web-wrapper",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node ./build-dist.mjs",
+    "deploy": "node ./build-dist.mjs && node ./deploy-pages.mjs",
+    "build:worker": "node ./build-worker.mjs",
+    "deploy:worker": "node ./deploy-worker.mjs",
+    "preview:worker": "node ./preview-worker.mjs",
+    "local-dev": "node ./preview-worker.mjs"
+  }
+}

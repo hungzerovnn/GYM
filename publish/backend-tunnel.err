@@ -1,0 +1,28 @@
+2026-04-07T05:58:10Z INF Thank you for trying Cloudflare Tunnel. Doing so, without a Cloudflare account, is a quick way to experiment and try it out. However, be aware that these account-less Tunnels have no uptime guarantee, are subject to the Cloudflare Online Services Terms of Use (https://www.cloudflare.com/website-terms/), and Cloudflare reserves the right to investigate your use of Tunnels for violations of such terms. If you intend to use Tunnels in production you should use a pre-created named tunnel by following: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps
+2026-04-07T05:58:10Z INF Requesting new quick Tunnel on trycloudflare.com...
+2026-04-07T05:58:14Z INF +--------------------------------------------------------------------------------------------+
+2026-04-07T05:58:14Z INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |
+2026-04-07T05:58:14Z INF |  https://alumni-knives-alto-snap.trycloudflare.com                                         |
+2026-04-07T05:58:14Z INF +--------------------------------------------------------------------------------------------+
+2026-04-07T05:58:14Z INF Version 2026.2.0 (Checksum b3279f2186a1c3c438ad5865e802bbbec26090c5d3fdb4ac1113f1143a94837a)
+2026-04-07T05:58:14Z INF GOOS: windows, GOVersion: go1.24.13, GoArch: amd64
+2026-04-07T05:58:14Z INF Settings: map[cred-file:C:\ProgramData\Cloudflare\cloudflared\4453e89e-354b-40ab-be4f-702ea3c2f53a.json credentials-file:C:\ProgramData\Cloudflare\cloudflared\4453e89e-354b-40ab-be4f-702ea3c2f53a.json ha-connections:1 no-autoupdate:true protocol:quic url:http://127.0.0.1:6273]
+2026-04-07T05:58:14Z INF cloudflared will not automatically update on Windows systems.
+2026-04-07T05:58:15Z INF Generated Connector ID: a0321798-e1b6-4a94-80ac-cb70a5e504fb
+2026-04-07T05:58:15Z INF Initial protocol quic
+2026-04-07T05:58:15Z INF ICMP proxy will use 192.168.100.59 as source for IPv4
+2026-04-07T05:58:15Z INF ICMP proxy will use fe80::ca42:5310:54f5:26b0 in zone Ethernet as source for IPv6
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF cloudflared does not support loading the system root certificate pool on Windows. Please use --origin-ca-pool <PATH> to specify the path to the certificate pool
+2026-04-07T05:58:15Z INF ICMP proxy will use 192.168.100.59 as source for IPv4
+2026-04-07T05:58:15Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveP256] connIndex=0 event=0 ip=198.41.200.193
+2026-04-07T05:58:15Z INF ICMP proxy will use fe80::ca42:5310:54f5:26b0 in zone Ethernet as source for IPv6
+2026-04-07T05:58:15Z INF Starting metrics server on 127.0.0.1:20241/metrics
+2026-04-07T05:58:15Z INF Registered tunnel connection connIndex=0 connection=7023798c-3256-44fe-ab95-24e6b68bbbbd event=0 ip=198.41.200.193 location=hkg08 protocol=quic

@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fitflow-api-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_ENV": "production",
+    "BACKEND_API_URL": "https://<your-railway-backend>.up.railway.app",
+    "FRONTEND_ORIGINS": "https://gymvnchoice.pages.dev",
+    "CORS_ALLOWED_ORIGINS": "https://gymvnchoice.pages.dev,https://gymvnchoice-web.hungzerovnn.workers.dev"
+  }
+}

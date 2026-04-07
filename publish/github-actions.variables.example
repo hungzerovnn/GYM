@@ -1,0 +1,3 @@
+CLOUDFLARE_PAGES_PROJECT_NAME=gymvnchoice
+FRONTEND_UPSTREAM_URL=https://gymvnchoice-web.hungzerovnn.workers.dev
+NEXT_PUBLIC_API_URL=https://fitflow-api-worker.hungzerovnn.workers.dev/api

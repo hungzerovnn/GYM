@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fitness-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fitness_management
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: fitness-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: fitness-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: fitness-api
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    env_file:
+      - .env.example
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/fitness_management?schema=public
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      PORT: 6273
+      API_URL: http://localhost:6273/api
+      APP_URL: http://localhost:3000
+    ports:
+      - "6273:6273"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: fitness-web
+    depends_on:
+      - api
+    env_file:
+      - .env.example
+    environment:
+      NEXT_PUBLIC_APP_NAME: FitFlow Enterprise
+      NEXT_PUBLIC_API_URL: http://localhost:6273/api
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

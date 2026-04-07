@@ -1,0 +1,20 @@
+{
+  "name": "fitflow-api-worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "npx -y wrangler@latest dev",
+    "deploy": "npx -y wrangler@latest deploy",
+    "build": "npx -y wrangler@latest deploy --dry-run"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "typescript": "^5.7.3",
+    "wrangler": "latest"
+  }
+}
