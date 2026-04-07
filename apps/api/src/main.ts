@@ -13,7 +13,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
   const config = app.get(ConfigService);
   const appUrl = config.get<string>('APP_URL', 'http://localhost:3000');
-  const port = config.get<number>('PORT', 6273);
+  const port = Number(config.get<string>('PORT', '6273'));
   const extraOrigins = (config.get<string>('CORS_ALLOWED_ORIGINS', '') || '')
     .split(',')
     .map((item) => item.trim())
@@ -64,7 +64,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 }
 
 void bootstrap();
