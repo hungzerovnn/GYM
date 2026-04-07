@@ -6,6 +6,7 @@ import {
   Post,
   Req,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
@@ -77,6 +78,9 @@ export class AuthController {
   ) {
     const token =
       dto.refreshToken || (req as any).cookies?.fitflow_refresh_token;
+    if (!token) {
+      throw new UnauthorizedException('Refresh token khong hop le');
+    }
     const result = await this.authService.refresh(token);
 
     response.cookie('fitflow_refresh_token', result.refreshToken, {

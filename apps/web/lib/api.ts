@@ -71,12 +71,27 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
-    if (error.config?.url?.includes("/auth/refresh")) {
+    const requestUrl = error.config?.url as string | undefined;
+    const hasAccessToken = Boolean(getAccessToken());
+    const isRefreshRequest = requestUrl?.includes("/auth/refresh");
+    const isPublicAuthRequest = [
+      "/auth/login",
+      "/auth/request-otp",
+      "/auth/databases",
+      "/auth/otp-config",
+    ].some((path) => requestUrl?.includes(path));
+
+    if (isRefreshRequest) {
       setAccessToken(null);
       throw error;
     }
 
-    if (error.response?.status !== 401 || error.config?._retry) {
+    if (
+      error.response?.status !== 401 ||
+      error.config?._retry ||
+      !hasAccessToken ||
+      isPublicAuthRequest
+    ) {
       throw error;
     }
 
