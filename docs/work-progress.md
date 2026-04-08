@@ -1,6 +1,6 @@
 # Work Progress
 
-Updated: 2026-04-06 15:08 Asia/Bangkok
+Updated: 2026-04-08 15:05 Asia/Bangkok
 
 ## Current Runtime
 
@@ -13,7 +13,372 @@ Updated: 2026-04-06 15:08 Asia/Bangkok
   - `admin@fitflow.local / Admin@123`
   - `sales@fitflow.local / Admin@123`
 
+## Latest Savepoint - 2026-04-08 15:05 Asia/Bangkok
+
+### Full device-log export and clear-all fallback
+
+- extended the attendance machine maintenance box so operators now have 2 fallback actions when date-range delete is not practical on the device:
+  - `Tai toan bo log tren may`
+  - `Xoa toan bo log tren may`
+- these actions remain separate from:
+  - `Tai du lieu cham cong ve he thong`
+- implementation notes:
+  - full export reads every log that is still stored on the device and downloads it to the operator machine
+  - full delete is a dedicated clear-all action for devices that only support wiping all logs instead of partial date-range delete
+  - UI now shows a confirm dialog before `Xoa toan bo log tren may`
+  - result cards can now display either a date range or `Toan bo log tren may` as the operation scope
+- backend / connector changes:
+  - new maintenance actions:
+    - `EXPORT_ALL_MACHINE_LOGS`
+    - `DELETE_ALL_MACHINE_LOGS`
+  - connector interface expanded with:
+    - `pullAllAttendanceLogs`
+    - `deleteAllAttendanceLogs`
+  - ZK connector now supports both actions directly
+  - i18n text was added for the new UI / toast / result strings across `vi`, `en`, `ko`
+- runtime verification:
+  - `npm run build:api` passes
+  - `npm run build:web` passes
+  - API restarted successfully on `6273`
+  - web restarted successfully on `6173`
+- real-device smoke test on `ZK-VN-29 / 192.168.100.29`:
+  - `EXPORT_ALL_MACHINE_LOGS`
+    - result: success
+    - total records exported: `160927`
+    - preview records returned: `8`
+    - generated file name:
+      - `attendance-machine-ZK-VN-29-2026-04-08-all-device-logs.json`
+- destructive action policy used in this session:
+  - `DELETE_ALL_MACHINE_LOGS` was implemented and exposed in the UI
+  - it was not executed against the live machine during this session, to avoid clearing the customer device without an explicit final click from the operator
+
 ## Completed In This Session
+
+### Staff Shifts, Staff Assignment, Member Presence - 2026-04-08 10:28 Asia/Bangkok
+
+- completed 3 new operating modules agreed in chat:
+  - `Nhan vien / Danh sach ca lam`
+  - `Nhan vien / Phan ca nhan vien`
+  - `Hoi vien / Xac nhan dang tap`
+- implementation scope now covers:
+  - shift master CRUD:
+    - ma ca
+    - ten ca
+    - gio bat dau / ket thuc
+    - nghi giua ca
+    - gio cong
+    - tre / ve som
+    - OT
+    - phu cap com / dem
+    - ca qua dem
+  - staff shift assignment:
+    - gan 1 hoac nhieu nhan vien
+    - chon 1 ca hoac nhieu ca
+    - `includeAllShifts`
+    - `isUnlimitedRotation`
+    - start / end date
+    - current shift status summary per employee
+  - member live presence:
+    - bam lan 1 -> `Dang tap`
+    - bam lan 2 -> `Off`
+    - auto-close session qua ngay theo setting `memberPresenceOvernightGraceHours`
+    - luu lich su check-in / check-out rieng, khong dung chung `membershipStatus`
+
+### backend and database completed
+
+- Prisma schema added:
+  - `StaffShift`
+  - `StaffShiftAssignment`
+  - `StaffShiftAssignmentShift`
+  - `MemberPresenceSession`
+- new migration created and applied successfully:
+  - `prisma/migrations/20260408120000_staff_shift_and_member_presence/migration.sql`
+- because the older shadow-db chain still fails on this workspace, the new migration was applied with:
+  - `npm run db:migrate`
+  - result: success on the real local database
+- new API routes completed:
+  - `GET/POST/PATCH/DELETE /api/staff-shifts`
+  - `GET/POST/PATCH/DELETE /api/staff-shift-assignments`
+  - `GET /api/member-presence`
+  - `GET /api/member-presence/:id`
+  - `POST /api/member-presence/:id/toggle`
+- reports service now prefers real assigned shifts before falling back to old role-based default logic
+- settings added:
+  - `memberPresenceOvernightGraceHours`
+- permissions/bootstrap updated for:
+  - `staff-shifts`
+  - `staff-shift-assignments`
+  - `member-presence`
+
+### frontend completed
+
+- added menu entries and pages:
+  - `Nhan vien / Danh sach ca lam`
+  - `Nhan vien / Phan ca nhan vien`
+  - `Hoi vien / Xac nhan dang tap`
+- resource workspace now supports view-only action patterns better via optional:
+  - `allowCreate`
+  - `allowEdit`
+  - `allowDelete`
+- detail drawers now include:
+  - shift summaries
+  - assignment summaries
+  - live member presence panel
+  - big toggle button for `Dang tap / Off`
+  - recent session history
+- attendance machine detail drawer face-enroll area now supports:
+  - paste `URL anh khuon mat`
+  - `Tai anh len` directly from local file
+  - auto-fill uploaded image URL back into the input
+  - preview face image before pressing `Day khuon mat len may`
+
+### shift catalog default data added
+
+- the `Danh sach ca lam` module now has the sample shift catalog loaded into the current database
+- current runtime data inserted:
+  - `VNChoice`: 12 shifts
+  - `THE CODE HOTEL & SPA OFFICIAL TVC`: 12 shifts
+- imported shift codes:
+  - `1/2M5`
+  - `M5`
+  - `M6`
+  - `M7`
+  - `M8VH`
+  - `M8`
+  - `S001`
+  - `1/2A1`
+  - `A2`
+  - `A3`
+  - `NFO`
+  - `NSEC`
+- seed file was also updated so future reset/seed runs recreate this default shift catalog automatically
+
+### shift assignment form simplification completed
+
+- updated `Phan ca nhan vien` create/edit flow to match the latest operator request:
+  - `Ma phan ca` now auto-suggests from the selected shift(s)
+  - `Ten phan ca` now auto-suggests from the selected shift(s)
+  - when only 1 shift is selected:
+    - code/name reuse that shift directly
+  - when multiple shifts are selected:
+    - code/name become a rotation-style suggestion such as `XOAY-M5`
+  - when all active shifts are selected:
+    - code/name become `ALL-CA / Tat ca ca`
+- create form now supports quick checklist selection for:
+  - nhan vien
+  - danh sach ca
+- both lists now support:
+  - search
+  - `Chon tat ca`
+  - `Bo chon`
+- branch-sensitive option filtering was fixed:
+  - changing branch now reloads the proper staff/shift list for that branch
+  - changing branch clears old staff/shift selections to avoid cross-branch mismatch
+- `Ngay bat dau` / `Ngay ket thuc` were removed from the assignment form UI
+- backend now defaults new assignments to:
+  - `startDate = today`
+  - `endDate = null`
+  - `isUnlimitedRotation = true` when not explicitly provided
+- backend also now auto-detects `includeAllShifts` when the submitted shift selection covers all active shifts of the branch
+- duplicate code safety was added:
+  - assignment codes still use the selected shift as the base
+  - if the same base code already exists in the branch, backend auto-appends suffixes such as `-1`, `-2`
+
+### runtime smoke test for new assignment UX
+
+- passed live API smoke tests after the form simplification:
+  - create 2 assignments at once for 2 staff with 2 selected shifts and no submitted date range
+    - result example:
+      - `XOAY-A2`
+      - `XOAY-A2-1`
+      - `effectiveRange = 2026-04-08 -> Khong gioi han`
+  - create 1 assignment with all 12 VNChoice shifts selected and no explicit `includeAllShifts`
+    - result example:
+      - `code = ALL-CA`
+      - `name = Tat ca ca`
+      - `includeAllShiftsLabel = Lay tat ca ca dang active`
+
+### rotation cycle days completed
+
+- added `rotationCycleDays` to staff shift assignments in database + backend + frontend
+- meaning:
+  - the selected shift stays active for `N` days before rotating to the next selected shift
+  - example:
+    - `2 ngay/ca` with `M5 -> A2`
+    - day 1-2 = `M5`
+    - day 3-4 = `A2`
+- when `Ca xoay khong thoi han = Co`
+  - the cycle continues indefinitely
+  - no `tu ngay / den ngay` input is needed
+- when `Ca xoay khong thoi han = Khong`
+  - system automatically calculates the effective end date from:
+    - number of selected shifts
+    - `rotationCycleDays`
+- UI updates:
+  - new field `Chu ky xoay ca (ngay)` in `Phan ca nhan vien`
+  - list/detail now show `Chu ky xoay`
+  - existing `Khong thoi han` flow remains, but no manual date range is required
+- backend safety updates:
+  - reports now use the same `rotationCycleDays` logic as live shift resolution
+  - assignment code generation now avoids reusing soft-deleted codes, so repeated create/delete/create does not throw unique-code errors
+- live smoke tests passed:
+  - finite example:
+    - `rotationCycleDays = 2`
+    - `isUnlimitedRotation = false`
+    - result:
+      - `rotationLabel = Ca xoay moi 2 ngay`
+      - `effectiveRange = 2026-04-08 -> 2026-04-11`
+  - unlimited example:
+    - `rotationCycleDays = 3`
+    - `isUnlimitedRotation = true`
+    - result:
+      - `rotationLabel = Ca xoay moi 3 ngay - khong thoi han`
+      - `effectiveRange = 2026-04-08 -> Khong gioi han`
+- new status badges/display labels added for:
+  - `WORKING`
+  - `UPCOMING`
+  - `NOT_CHECKED_IN`
+  - `LEFT_EARLY`
+  - `UNASSIGNED`
+  - `OFF`
+  - `AUTO_CLOSED`
+  - `NEVER_CHECKED_IN`
+
+### runtime smoke test completed
+
+- commands passed:
+  - `npm run db:generate`
+  - `npm run db:migrate`
+  - `npm run build:api`
+  - `npm run build:web`
+- live API smoke tests passed on local runtime:
+  - list `staff-shifts`
+  - create / update / get / delete temporary shift
+  - list `staff-shift-assignments`
+  - create / update / get / delete temporary assignment
+  - list `member-presence`
+  - toggle demo customer from `NEVER_CHECKED_IN -> ACTIVE -> OFF`
+- test summary from runtime:
+  - temporary shift CRUD: passed
+  - temporary shift assignment CRUD: passed
+  - member presence toggle: passed
+  - current shift status calculation on temp assignment returned `NOT_CHECKED_IN` as expected for a no-punch test case
+
+### important runtime fix completed
+
+- found and fixed a local runtime conflict in `apps/api/src/main.ts`
+- before fix, API was binding fallback ports including `6173`, which could hijack the web port and return backend JSON on the supposed web URL
+- after fix:
+  - API listens correctly on `6273`
+  - web remains on `6173`
+  - direct route checks returned `200` for:
+    - `/staff/shifts`
+    - `/staff/shift-assignments`
+    - `/members/presence`
+
+### files changed for this block
+
+- `prisma/schema.prisma`
+- `prisma/migrations/20260408120000_staff_shift_and_member_presence/migration.sql`
+- `prisma/seed.ts`
+- `apps/api/src/common/utils/staff-shift.util.ts`
+- `apps/api/src/common/constants/bootstrap.constants.ts`
+- `apps/api/src/main.ts`
+- `apps/api/src/modules/system/system.dto.ts`
+- `apps/api/src/modules/system/system.controller.ts`
+- `apps/api/src/modules/system/system.service.ts`
+- `apps/api/src/modules/crm/crm.dto.ts`
+- `apps/api/src/modules/crm/crm.controller.ts`
+- `apps/api/src/modules/crm/crm.service.ts`
+- `apps/api/src/modules/reports/reports.service.ts`
+- `apps/api/src/modules/settings/settings.dto.ts`
+- `apps/api/src/modules/settings/settings.service.ts`
+- `apps/api/src/modules/permissions/permissions.service.ts`
+- `apps/web/types/portal.ts`
+- `apps/web/components/table/smart-data-table.tsx`
+- `apps/web/components/portal/resource-workspace.tsx`
+- `apps/web/components/portal/resource-detail-drawer.tsx`
+- `apps/web/lib/module-config.ts`
+- `apps/web/lib/resource-meta.ts`
+- `apps/web/lib/i18n/display.ts`
+- `apps/web/components/shared/status-badge.tsx`
+
+### recommended QA after reload
+
+- hard refresh the browser once
+- verify menus:
+  - `Nhan vien / Danh sach ca lam`
+  - `Nhan vien / Phan ca nhan vien`
+  - `Hoi vien / Xac nhan dang tap`
+- verify shift CRUD:
+  - create one ca
+  - edit it
+  - delete it
+- verify staff assignment:
+  - assign 1 nhan vien to 1 ca
+  - assign 1 nhan vien to multiple ca
+  - test `Ca xoay khong thoi han`
+- verify member presence:
+  - choose 1 hoi vien in `Xac nhan dang tap`
+  - press once -> should show `Dang tap`
+  - press again -> should show `Off`
+- verify attendance-machine flow next:
+  - after QA of shift screens, do a fresh machine punch for the mapped user and then continue device import validation in `Quan ly may cham cong`
+
+### Attendance Machine Face/Card Audit - 2026-04-07 19:05 Asia/Bangkok
+
+- Continued the machine-attendance review to answer the open question about whether the current `Quan ly may cham cong` module is already using a real hardware sync protocol.
+- Current code audit confirmed the existing module is still a logical sync/export layer, not a full vendor-SDK integration:
+  - [apps/api/src/modules/system/system.dto.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\system\system.dto.ts)
+    - maintenance actions still stop at:
+      - `PULL_ATTENDANCE_EVENTS`
+      - `PULL_MACHINE_CODES`
+      - `PUSH_STAFF_CODES`
+      - `PUSH_CUSTOMER_CODES`
+      - `SYNC_MACHINE_TIME`
+  - [apps/api/src/modules/system/system.service.ts](c:\xampp\htdocs\GYM\apps\api\src\modules\system\system.service.ts)
+    - `PULL_ATTENDANCE_EVENTS` reads recent `StaffAttendanceEvent` rows already stored in the app database
+    - `PULL_MACHINE_CODES` exports local branch staff/member code rosters
+    - `PUSH_STAFF_CODES` and `PUSH_CUSTOMER_CODES` prepare branch records for sync, but do not call a real machine SDK/API
+    - `SYNC_MACHINE_TIME` returns a logical result payload, but there is still no confirmed device-side protocol call
+    - `host`, `connectionPort`, and `password` are currently saved and displayed, but not used in any real device transport/client implementation
+  - [prisma/schema.prisma](c:\xampp\htdocs\GYM\prisma\schema.prisma)
+    - `AttendanceMachine` still only stores basic machine metadata
+    - `StaffAttendanceEvent` stores `verificationMethod`, `rawCode`, machine/user links, and event time
+    - there is still no table for:
+      - face image storage
+      - face template storage
+      - card enrollment lifecycle
+      - person-to-machine identity mapping
+- Exact technical conclusion:
+  - current system can record/log attendance events for `FINGERPRINT`, `FACE`, and `CARD`
+  - current system can map events to staff if `rawCode` or attendance code matches
+  - current system does **not** yet implement a confirmed machine protocol such as vendor TCP/API/ADMS webhook sync
+  - current system does **not** yet support full face/card lifecycle:
+    - first-time face enrollment
+    - face image/template pull
+    - template push to device
+    - card assignment lifecycle
+- Added a dedicated implementation design/spec for the missing full integration:
+  - [docs/attendance-machine-face-card-sdk-design.md](c:\xampp\htdocs\GYM\docs\attendance-machine-face-card-sdk-design.md)
+  - the new design locks down:
+    - the exact current-state audit
+    - the conclusion that there is no real device protocol yet
+    - the recommended connector/adapter architecture
+    - required schema expansion for machine mappings, enrollment state, and biometric assets
+    - recommended APIs and lifecycle for:
+      - first-time face enrollment
+      - card assignment
+      - later event sync
+      - optional image/template storage
+    - phased rollout guidance toward a full face/card SDK-style integration
+- Safe resume point:
+  - the current module is now accurately documented as a local export/event-management layer
+  - the next engineering step should start with:
+    - protocol-aware machine metadata
+    - person-to-machine mapping
+    - one real vendor connector
+  - only after that should face/card enrollment workflows be implemented
 
 ### Navigation / Layout
 
@@ -2252,3 +2617,335 @@ Updated: 2026-04-06 15:08 Asia/Bangkok
 - `nest start --watch` was unstable during this pass because the running process could restart while `dist` was being rebuilt; live API verification was completed successfully using `build + start:prod` on port `3001`.
 - For the web runtime on Windows, the most reliable detached production start flow in this workspace is the direct node invocation `node .\\node_modules\\next\\dist\\bin\\next start --port 6173`; the detached `npm run start` / `npx next start` variants can print `Ready` into the log even after the listener has already dropped.
 - After this i18n stabilization pass, changing locale inside the app should update immediately without `Ctrl + F5`; a normal `F5` is only needed after a new web build/server restart.
+
+## 2026-04-07 Attendance Device SDK Foundation + Hikvision Connector
+
+- completed the first production-facing backend foundation for attendance device integration in the current codebase without replacing the existing attendance machine screens
+- schema / migration foundation is now present for advanced machine integration:
+  - added machine metadata fields for vendor, machine type, protocol, model, device identifier, username, timezone, and connector capability flags in [schema.prisma](C:\xampp\htdocs\GYM\prisma\schema.prisma)
+  - added new tables for person-machine mapping, enrollment lifecycle, and biometric assets in [schema.prisma](C:\xampp\htdocs\GYM\prisma\schema.prisma)
+  - foundation migration already exists at [migration.sql](C:\xampp\htdocs\GYM\prisma\migrations\20260407191500_attendance_device_sdk_foundation\migration.sql)
+- scaffolded and wired backend module `attendance-devices`:
+  - [attendance-devices.module.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\attendance-devices\attendance-devices.module.ts)
+  - [attendance-devices.service.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\attendance-devices\attendance-devices.service.ts)
+  - [attendance-device.registry.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\attendance-devices\attendance-device.registry.ts)
+  - [attendance-device.types.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\attendance-devices\attendance-device.types.ts)
+- plugged the first real vendor connector:
+  - [hikvision-isapi.connector.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\attendance-devices\connectors\hikvision-isapi.connector.ts)
+  - current real operations in code:
+    - ping Hikvision via official ISAPI user count endpoint
+    - pull users from Hikvision via official user search endpoint
+    - push users to Hikvision via official user setup endpoint
+    - push card enrollment via official card setup endpoint
+    - push face enrollment foundation via official face library setup endpoint when face asset payload is available
+  - current intentional limitation:
+    - detailed attendance log polling for Hikvision is still left conservative / not fully switched on yet until the event-query contract is locked per model/firmware
+    - time sync is still intentionally marked unsupported in the connector to avoid writing speculative commands to a real device
+- extended the current attendance machine CRUD API to persist vendor-specific metadata in the existing module:
+  - [system.dto.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\system\system.dto.ts)
+  - [system.service.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\system\system.service.ts)
+  - [system.module.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\system\system.module.ts)
+- extended the current UI so the existing attendance machine form can input and display the connector metadata without redesigning the screen:
+  - [module-config.ts](C:\xampp\htdocs\GYM\apps\web\lib\module-config.ts)
+  - added fields / display for:
+    - vendor
+    - machineType
+    - protocol
+    - model
+    - deviceIdentifier
+    - username
+    - timeZone
+- current maintenance actions in the existing machine screen now have connector sidecar integration for Hikvision-configured machines:
+  - `PULL_MACHINE_CODES` now also calls connector user pull
+  - `PUSH_STAFF_CODES` now also calls connector user push
+  - `PUSH_CUSTOMER_CODES` now also calls connector user/card push
+  - `SYNC_MACHINE_TIME` now returns connector capability/result metadata
+  - generic / offline machines still keep the old non-vendor-safe behavior
+- validation status after this pass:
+  - `npm run db:generate` passed
+  - `npm run build:api` passed
+  - `npm run build:web` passed
+  - `prisma validate --schema C:/xampp/htdocs/GYM/prisma/schema.prisma` passed
+- migration status after this pass:
+  - `prisma migrate dev` in this workspace still hangs / is not reliable in the current terminal flow
+  - `prisma migrate deploy` against the current Neon pooled connection still returned a schema-engine failure, so migration is not fully locked yet at the environment layer even though schema validation and both app builds are green
+  - before the next migration attempt, re-check whether the current Neon connection string is a pooled / pgbouncer-style URL and prepare a direct migration URL if needed
+- safe resume point for next session:
+  - if continuing next, the next high-value step is to expose explicit enrollment APIs/UI on top of the connector foundation so face/card onboarding can be driven from the app instead of only from service-layer methods
+  - after that, finish Hikvision attendance event polling and then decide whether ZKTeco gets the second vendor connector
+
+## 2026-04-07 Attendance Device Enroll UI + Hikvision Event Polling + Direct Prisma Migrate
+
+- finished the first end-to-end app-facing enrollment flow on top of the attendance connector foundation without replacing the existing attendance machine screen
+- backend attendance machine maintenance API now supports explicit enrollment payloads:
+  - added `ENROLL_FACE` and `ENROLL_CARD` into [system.dto.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\system\system.dto.ts)
+  - added payload fields for person selection, machine user id, machine code, card code, face image URL, and inline base64 asset payload in [system.dto.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\system\system.dto.ts)
+  - `maintainAttendanceMachine(...)` in [system.service.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\system\system.service.ts) now:
+    - resolves the selected staff/customer from app data
+    - creates/updates person-machine mapping records
+    - creates enrollment lifecycle records
+    - stores biometric asset metadata when face/card payload is supplied
+    - routes the actual vendor-side enrollment through the connector layer
+- the existing attendance machine detail UI now exposes real enrollment actions from the current screen:
+  - [resource-detail-drawer.tsx](C:\xampp\htdocs\GYM\apps\web\components\portal\resource-detail-drawer.tsx)
+  - users can now choose:
+    - staff vs customer
+    - concrete person from branch-filtered options
+    - machine user id
+    - card code
+    - face image URL
+  - the machine detail screen now triggers:
+    - `ENROLL_CARD`
+    - `ENROLL_FACE`
+    - and still keeps the previous maintenance actions
+- Hikvision attendance event polling is now switched on at the connector layer:
+  - [hikvision-isapi.connector.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\attendance-devices\connectors\hikvision-isapi.connector.ts)
+  - current implementation:
+    - polls Hikvision access events via ISAPI event search
+    - maps raw vendor event records into internal connector log payloads
+    - resolves verification method into `FINGERPRINT` / `FACE` / `CARD`
+    - resolves event type into internal attendance event types
+  - `PULL_ATTENDANCE_EVENTS` in [system.service.ts](C:\xampp\htdocs\GYM\apps\api\src\modules\system\system.service.ts) now:
+    - calls the Hikvision connector when the machine is configured for vendor sync
+    - imports matched events into internal attendance records
+    - reports imported / duplicate / unmatched counts back to the UI
+- Prisma direct migration flow is now fixed for local development:
+  - datasource in [schema.prisma](C:\xampp\htdocs\GYM\prisma\schema.prisma) uses `directUrl = env("DIRECT_URL")`
+  - local root env already provides:
+    - `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/fitness_management?schema=public`
+    - `DIRECT_URL=postgresql://postgres:postgres@localhost:5433/fitness_management?schema=public`
+  - `prisma migrate deploy` was rerun with explicit local `DATABASE_URL` + `DIRECT_URL`, so it no longer drifted into pooled Neon URLs
+  - there was one local Postgres advisory-lock blocker from a stale shadow-db session; it was identified and cleared, and migrate then completed with:
+    - `No pending migrations to apply`
+- validation status after this pass:
+  - `npm run build:api` passed
+  - `npm run build:web` passed
+  - `npm run db:generate` passed
+  - `prisma validate --schema C:/xampp/htdocs/GYM/prisma/schema.prisma` passed
+  - `prisma migrate deploy --schema C:/xampp/htdocs/GYM/prisma/schema.prisma` passed against the direct local connection and reported no pending migrations
+- remaining device-side reality gap:
+  - Hikvision event polling is now implemented at the connector layer, but still needs real-device verification against exact firmware / event payload shapes
+  - face enrollment is app/API-ready, but long-term production use still needs a durable asset source and model-specific Hikvision validation for actual face library behavior
+  - card / face onboarding UX is now present in the existing machine detail flow, but a dedicated operator workflow may still be useful later if bulk onboarding becomes frequent
+- safe resume point for next session:
+  - if continuing next, the best follow-up is real-device Hikvision validation with one configured machine:
+    - verify user push
+    - verify card enroll
+    - verify face enroll
+    - verify event polling payload mapping
+  - after Hikvision is proven on real hardware, the next clean expansion is a second vendor connector such as ZKTeco
+
+## 2026-04-07 Attendance Machine Test Config Set
+
+- created reusable test machine configurations directly in the local database so later real hardware setup only needs IP / credentials updates instead of rebuilding the records
+- all newly created records were intentionally left in:
+  - `syncEnabled = false`
+  - `connectionStatus = DISCONNECTED`
+- existing live-ish machine records were left untouched
+- current reusable test configs:
+  - `TEST-HIK-FACE-01`
+    - vendor: `HIKVISION`
+    - machineType: `FACE`
+    - protocol: `HIKVISION_ISAPI`
+    - branch: `VNChoice`
+    - host placeholder: `192.168.100.10:80`
+  - `TEST-HIK-HYBRID-01`
+    - vendor: `HIKVISION`
+    - machineType: `HYBRID`
+    - protocol: `HIKVISION_ISAPI`
+    - branch: `VNChoice`
+    - host placeholder: `192.168.100.11:80`
+  - `TEST-ZK-FP-01`
+    - vendor: `ZKTECO`
+    - machineType: `FINGERPRINT`
+    - protocol: `ZK_PULL_TCP`
+    - branch: `The Code`
+    - host placeholder: `192.168.100.20:4370`
+  - `TEST-ZK-ADMS-01`
+    - vendor: `ZKTECO`
+    - machineType: `HYBRID`
+    - protocol: `ZK_ADMS_PUSH`
+    - branch: `The Code`
+    - host placeholder: `192.168.100.21:8080`
+  - `TEST-RJ-CARD-01`
+    - vendor: `RONALD_JACK`
+    - machineType: `CARD`
+    - protocol: `ZK_PULL_TCP`
+    - branch: `VNChoice`
+    - host placeholder: `192.168.100.30:4370`
+- purpose of this set:
+  - keep one ready-made machine record per major vendor/protocol direction
+  - allow future testing by only changing:
+    - IP / host
+    - port
+    - username / password
+    - then toggling sync / connection state
+- important note:
+  - these records only validate configuration persistence / screen readiness right now
+  - they are not proof of real hardware interoperability yet
+  - actual live vendor validation still requires a reachable device of the matching vendor/model
+
+## 2026-04-07 Late Savepoint - UI Compaction, Printers, Avatar, Resume Pack
+
+### current focus completed
+- reduced horizontal table sprawl across customer/member/contract-heavy screens by grouping multiple related fields into compact cells in the shared smart table renderer
+- kept row actions available as `view / edit / delete / print`; generic row print fallback now works even when a resource does not have a dedicated print profile
+- separated grouped date content so registration information no longer repeats package time information:
+  - `Thong tin dang ky` now shows registration-style metadata only
+  - `Thoi gian goi tap` now shows package timeline only (`Bat dau / Het han / Con lai`)
+- build status after the final compact-cell fix:
+  - `npm run build:web` passed
+
+### printer configuration work completed
+- print settings screen now supports a more practical split between:
+  - system printer name mode
+  - IP / network printer mode
+- local backend can enumerate Windows printers for the print-template settings screen when running on the local machine
+- paper sizes are now loaded based on the selected printer so the user can choose supported sizes such as `A3`, `A4`, `Letter`, `Legal`, etc.
+- print orientation was added:
+  - `PORTRAIT` / `LANDSCAPE`
+- IP printer fields were cleaned up so they only appear when IP/network mode is selected
+- important runtime note:
+  - printer listing and printer paper size discovery require the local backend to be restarted so new routes/services are loaded
+
+### avatar / uploaded image display work completed
+- avatar upload fields now support upload + preview/link flows in dialogs such as user edit
+- list/detail UI now renders avatar thumbnails from `avatarUrl` instead of only showing the raw URL
+- backend upload image embedding issue was fixed by allowing cross-origin image usage from `/uploads`
+- important runtime note:
+  - local backend must be restarted after the `main.ts` header/static-file patch so browser image embeds stop falling back to initials
+
+### attendance machine foundation state
+- attendance device groundwork already exists for:
+  - machine mapping
+  - enrollment records
+  - biometric assets
+  - connector registry
+  - Hikvision ISAPI connector foundation
+- reusable test machine records remain in the database in a safe disconnected state for later real-device validation
+
+### latest files changed during the most recent block
+- `apps/web/components/table/smart-data-table.tsx`
+- `apps/web/components/portal/resource-workspace.tsx`
+- `apps/web/lib/print.ts`
+- `apps/web/lib/module-config.ts`
+- `apps/api/src/modules/settings/settings.service.ts`
+- `apps/api/src/modules/settings/settings.controller.ts`
+- `apps/web/components/portal/settings-workspace.tsx`
+- `apps/web/components/forms/form-dialog.tsx`
+- `apps/web/components/portal/resource-detail-drawer.tsx`
+- `apps/api/src/main.ts`
+- `apps/api/package.json`
+- root `package.json`
+
+### current known restart-sensitive items
+- if avatars still show initials instead of photos, restart local stack with `start.bat`
+- if printer dropdown or printer paper-size options do not appear, restart local stack with `start.bat`
+- if the UI still shows old grouped-cell behavior, restart local stack or hard-refresh the browser
+
+### recommended next session entry point
+- open the handoff and chat-log files created in `docs/`
+- verify after restart:
+  - avatar thumbnails display correctly
+  - printer list loads
+  - printer paper sizes load per selected printer
+  - grouped contract/member tables look correct and no longer repeat timeline content
+- after verification, continue polishing grouped-table layouts module-by-module to match the legacy reference more closely where needed
+
+## 2026-04-07 Session Documentation Index
+- full chronological master log: `C:\xampp\htdocs\GYM\docs\session-master-2026-04-07-full.md`
+- technical handoff: `C:\xampp\htdocs\GYM\docs\session-handoff-2026-04-07.md`
+- chat log summary: `C:\xampp\htdocs\GYM\docs\chat-log-2026-04-07.md`
+- note:
+  - the end-of-day savepoint is only the closing checkpoint
+  - the full day history, middle steps, and technical decisions are recorded in the session master / handoff / chat summary files above
+
+## 2026-04-08 Savepoint - Shift Assignment i18n and rotation lock
+- normalized the new `staff-shifts` / `staff-shift-assignments` labels to proper Vietnamese with diacritics at the source level in `apps/web/lib/module-config.ts`
+- added exact-text translations for the new shift-management strings across all 3 locales (`vi`, `en`, `ko`) in `apps/web/lib/i18n/messages.ts`
+- updated compact multi-select wording to:
+  - `Chọn tất cả nhân viên`
+  - `Chọn tất cả ca`
+  - `Bỏ chọn`
+  - accented helper / search texts
+- updated shift assignment auto-suggestion labels to use:
+  - `Tất cả ca`
+  - `Lịch xoay`
+- locked `Chu kỳ xoay ca (ngày)` in the form when `Ca xoay không thời hạn` is enabled
+- normalized submit payload so unlimited rotation always saves with `rotationCycleDays = 1`
+## 2026-04-08 Savepoint - Attendance machine device-range export and safe delete
+- added a new dedicated box inside `Quan ly may cham cong` detail drawer, above the face/card enrollment section:
+  - `Tai / xoa du lieu tren may theo moc thoi gian`
+  - this is intentionally separate from `Tai du lieu cham cong ve he thong`
+- the new box now supports:
+  - choose `Tu ngay`
+  - choose `Den ngay`
+  - `Tai du lieu tu may ve may tinh`
+  - `Xoa du lieu tren may`
+- the UI blocks invalid range selection:
+  - both dates are required
+  - `Tu ngay` cannot be later than `Den ngay`
+  - date pickers constrain min/max against each other
+- backend maintenance actions added:
+  - `EXPORT_MACHINE_LOG_RANGE`
+  - `DELETE_MACHINE_LOG_RANGE`
+- connector interface expanded so machine connectors can optionally support:
+  - pull logs by date range directly from device memory
+  - delete logs by date range from device memory
+- `ZK_PULL_TCP` connector now supports the new maintenance flow for real ZKTeco devices
+
+### important ZK safety behavior
+- for the tested ZK device line, firmware/library only safely supports `clear all attendance logs`, not precise partial delete by date
+- because of that, delete flow is guarded:
+  - if selected range matches no logs: no-op success
+  - if selected range does not cover all logs currently on the device: delete is blocked
+  - only when selected range covers all logs on device: system allows clear-all to free memory safely
+- this means the feature protects the operator from accidentally deleting logs outside the chosen range
+
+### stability hardening completed
+- found a real runtime risk with `zkteco-js`:
+  - `getAttendances()` can throw timeout errors or even destabilize the Nest process
+- added isolated worker runner:
+  - `apps/api/tools/zk-pull-tcp-log-runner.cjs`
+- log read / clear operations now run in a child process instead of the main API process
+- added retry logic around the worker call for transient ZK timeout/socket failures
+- result:
+  - the new date-range export now succeeds more reliably on the real machine after rebuild/restart
+
+### real-device smoke test on 2026-04-08
+- machine tested:
+  - code: `ZK-VN-29`
+  - ip: `192.168.100.29`
+  - protocol: `ZK_PULL_TCP`
+- runtime after patch:
+  - web listening on `6173`
+  - api listening on `6273`
+- verified with authenticated API calls:
+  - `EXPORT_MACHINE_LOG_RANGE`
+    - range: `2019-06-21` -> `2019-06-21`
+    - result: success
+    - total records exported: `127`
+    - preview records returned: `8`
+  - `DELETE_MACHINE_LOG_RANGE`
+    - range: `2019-06-21` -> `2019-06-21`
+    - result: blocked safely
+    - machine currently reports about `160927` logs
+    - matched in selected range: `127`
+    - delete strategy shown to operator: `Xoa toan bo log tren may`
+    - because selected range does not cover all device logs, system refused delete
+
+### files changed in this block
+- `apps/api/src/modules/system/system.dto.ts`
+- `apps/api/src/modules/attendance-devices/attendance-device.types.ts`
+- `apps/api/src/modules/attendance-devices/attendance-devices.service.ts`
+- `apps/api/src/modules/attendance-devices/attendance-device.registry.ts`
+- `apps/api/src/modules/attendance-devices/connectors/zk-pull-tcp.connector.ts`
+- `apps/api/src/modules/system/system.service.ts`
+- `apps/api/tools/zk-pull-tcp-log-runner.cjs`
+- `apps/web/components/portal/resource-detail-drawer.tsx`
+- `apps/web/lib/i18n/messages.ts`
+- verified:
+  - `npm run build:web` passes
+  - web runtime restarted successfully on `http://127.0.0.1:6173`
+  - server-rendered HTML for `/staff/shift-assignments` now contains `Phân ca nhân viên` instead of `Phan ca nhan vien`
+  - compiled bundles contain the new labels `Chọn tất cả nhân viên`, `Chọn tất cả ca`, `Bỏ chọn`, and the unlimited-rotation lock helper

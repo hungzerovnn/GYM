@@ -33,7 +33,7 @@ interface PrintResourceRecordOptions {
   record?: Record<string, unknown>;
   filters?: PrintKeyValue[];
   template?: Record<string, unknown> | null;
-  profile: DocumentProfile;
+  profile?: DocumentProfile | null;
 }
 
 interface PrintSettingPreviewOptions {
@@ -412,8 +412,15 @@ const buildReportDataTable = (
   `;
 };
 
-const getDocumentTemplate = (profile: DocumentProfile, template?: Record<string, unknown> | null) => {
+const getDocumentTemplate = (profile: DocumentProfile | null | undefined, template?: Record<string, unknown> | null) => {
   const source = template || {};
+
+  if (!profile) {
+    return {
+      header: String(source.receiptHeader || source.contractHeader || ""),
+      footer: String(source.receiptFooter || source.note || ""),
+    };
+  }
 
   switch (profile) {
     case "sale":
@@ -474,7 +481,7 @@ const buildResourceRecordBody = ({
   entries,
   filters,
 }: {
-  profile: DocumentProfile;
+  profile?: DocumentProfile | null;
   record?: Record<string, unknown>;
   entries: PrintKeyValue[];
   filters: PrintKeyValue[];
@@ -1168,7 +1175,7 @@ export const printResourceRecord = ({
       headerNote: documentTemplate.header,
       footerNote: documentTemplate.footer,
       showSignature: asBoolean(template?.showSignature),
-      signatureCaptions: getSignatureCaptions(profile),
+      signatureCaptions: getSignatureCaptions(profile || undefined),
     }),
   );
 };

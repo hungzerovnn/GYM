@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { resolveTextDisplay, translateText } from "@/lib/i18n/display";
 import { ResourceDefinition, ResourceField, SettingDefinition } from "@/types/portal";
 import { cn } from "@/lib/format";
+import { CompactMultiSelectField } from "./compact-multi-select-field";
 import { MultiChecklistField } from "./multi-checklist-field";
 import { PermissionMatrixField } from "./permission-matrix-field";
 import { PurchaseOrderItemsField } from "./purchase-order-items-field";
@@ -144,10 +145,75 @@ const getFieldSpanClass = (span?: 1 | 2 | 3) => {
   return "";
 };
 
+type ResolvedFieldOption = {
+  label: string;
+  value: string;
+  raw?: Record<string, unknown>;
+};
+
+const buildResolvedOptions = (
+  field: ResourceField | undefined,
+  rawOptions: Array<Record<string, unknown>>,
+): ResolvedFieldOption[] => {
+  if (!field) {
+    return [];
+  }
+
+  if (field.options?.length) {
+    return field.options.map((option) => ({
+      label: option.label,
+      value: option.value,
+    }));
+  }
+
+  return rawOptions.map((item) => ({
+    label: resolveTextDisplay(item[field.optionLabelKey || "name"] || item.name || item.code || item.title, field.name, item),
+    value: String(item[field.optionValueKey || "id"] || item.id || item.code || ""),
+    raw: item,
+  }));
+};
+
+const buildShiftAssignmentSuggestion = (
+  selectedShifts: Array<{ code: string; name: string }>,
+  totalShiftCount: number,
+) => {
+  if (!selectedShifts.length) {
+    return { code: "", name: "" };
+  }
+
+  if (selectedShifts.length === 1) {
+    return {
+      code: selectedShifts[0].code,
+      name: selectedShifts[0].name,
+    };
+  }
+
+  if (totalShiftCount > 0 && selectedShifts.length === totalShiftCount) {
+    return {
+      code: "ALL-CA",
+      name: translateText("Tất cả ca"),
+    };
+  }
+
+  return {
+    code: `XOAY-${selectedShifts[0].code}`,
+    name: translateText("Lịch xoay"),
+  };
+};
+
 export function FormDialog({ open, title, definition, endpoint, initialValues, queryKey, onClose }: FormDialogProps) {
   const queryClient = useQueryClient();
   const fields = useMemo(() => getVisibleFields(definition, initialValues), [definition, initialValues]);
   const schema = useMemo(() => buildSchema(fields), [fields]);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const autoAssignmentCodeRef = useRef("");
+  const autoAssignmentNameRef = useRef("");
+  const previousAssignmentBranchRef = useRef("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+  const [avatarUploadError, setAvatarUploadError] = useState<string | null>(null);
   const isEditing = Boolean(initialValues?.id);
   const isCustomerForm = "permissionPrefix" in definition && (definition.baseKey || definition.key) === "customers";
   const isAccessControlForm =
@@ -156,6 +222,8 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
     "permissionPrefix" in definition && ["shop-sales", "shop-returns"].includes(definition.baseKey || definition.key);
   const isPurchaseOrderForm =
     "permissionPrefix" in definition && (definition.baseKey || definition.key) === "purchase-orders";
+  const isStaffShiftAssignmentForm =
+    "permissionPrefix" in definition && (definition.baseKey || definition.key) === "staff-shift-assignments";
   const createActionLabel =
     "createLabel" in definition && typeof definition.createLabel === "string" && definition.createLabel.trim()
       ? definition.createLabel
@@ -167,14 +235,126 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
     defaultValues: buildDefaultValues(fields, initialValues),
   });
   const selectedBranchId = String(form.watch("branchId") || "");
+  const selectedLogoUrl = String(form.watch("logoUrl") || "");
+  const selectedAvatarUrl = String(form.watch("avatarUrl") || "");
+  const watchedShiftIds = form.watch("shiftIds");
+  const selectedShiftIds = Array.isArray(watchedShiftIds) ? watchedShiftIds.map((item) => String(item)) : [];
+  const isUnlimitedRotationSelected = String(form.watch("isUnlimitedRotation") || "") === "true";
 
   useEffect(() => {
     form.reset(buildDefaultValues(fields, initialValues));
-  }, [fields, form, initialValues]);
+    autoAssignmentCodeRef.current = "";
+    autoAssignmentNameRef.current = "";
+    previousAssignmentBranchRef.current = String(initialValues?.branchId || "");
+    if (!initialValues?.id && isStaffShiftAssignmentForm) {
+      form.setValue("isUnlimitedRotation", "true", { shouldDirty: false, shouldValidate: false });
+      form.setValue("rotationCycleDays", "1", { shouldDirty: false, shouldValidate: false });
+    }
+  }, [fields, form, initialValues, isStaffShiftAssignmentForm]);
+
+  const resolveAssetUrl = (value: string) => {
+    const normalized = value.trim();
+    if (!normalized) return "";
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+
+    const apiBase = String(api.defaults.baseURL || "").replace(/\/api\/?$/, "");
+    if (!apiBase) return normalized;
+    return `${apiBase}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
+  };
+
+  const handleLogoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploadingLogo(true);
+      setLogoUploadError(null);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const baseKey = definition.baseKey || definition.key;
+      const entityType = `${baseKey}_logo`;
+      const entityId = String(initialValues?.id || `draft-${baseKey}`);
+      const params = new URLSearchParams({ entityType, entityId });
+
+      if (selectedBranchId) {
+        params.set("branchId", selectedBranchId);
+      }
+
+      const response = await api.post(`/attachments/upload?${params.toString()}`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const nextUrl = resolveAssetUrl(String(response.data?.fileUrl || ""));
+      form.setValue("logoUrl", nextUrl, { shouldDirty: true, shouldValidate: true });
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "response" in error
+          ? String((error as { response?: { data?: { message?: string } } }).response?.data?.message || translateText("Upload logo failed"))
+          : translateText("Upload logo failed");
+      setLogoUploadError(message);
+    } finally {
+      setUploadingLogo(false);
+      if (event.target) {
+        event.target.value = "";
+      }
+    }
+  };
+
+  const handleAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploadingAvatar(true);
+      setAvatarUploadError(null);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const baseKey = definition.baseKey || definition.key;
+      const entityType = `${baseKey}_avatar`;
+      const entityId = String(initialValues?.id || `draft-${baseKey}`);
+      const params = new URLSearchParams({ entityType, entityId });
+
+      if (selectedBranchId) {
+        params.set("branchId", selectedBranchId);
+      }
+
+      const response = await api.post(`/attachments/upload?${params.toString()}`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const nextUrl = resolveAssetUrl(String(response.data?.fileUrl || ""));
+      form.setValue("avatarUrl", nextUrl, { shouldDirty: true, shouldValidate: true });
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "response" in error
+          ? String((error as { response?: { data?: { message?: string } } }).response?.data?.message || translateText("Upload avatar failed"))
+          : translateText("Upload avatar failed");
+      setAvatarUploadError(message);
+    } finally {
+      setUploadingAvatar(false);
+      if (event.target) {
+        event.target.value = "";
+      }
+    }
+  };
 
   const optionsQueries = useQueries({
     queries: fields.map((field) => ({
-      queryKey: ["options", field.name, field.optionsEndpoint, isPurchaseOrderForm && field.name === "supplierId" ? selectedBranchId : ""],
+      queryKey: [
+        "options",
+        field.name,
+        field.optionsEndpoint,
+        isPurchaseOrderForm && field.name === "supplierId" ? selectedBranchId : "",
+        isStaffShiftAssignmentForm && ["userIds", "userId", "shiftIds"].includes(field.name) ? selectedBranchId : "",
+      ],
       enabled:
         open &&
         Boolean(field.optionsEndpoint) &&
@@ -186,12 +366,105 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
           params: {
             pageSize: 100,
             ...(isPurchaseOrderForm && field.name === "supplierId" && selectedBranchId ? { branchId: selectedBranchId } : {}),
+            ...(isStaffShiftAssignmentForm &&
+            selectedBranchId &&
+            ["userIds", "userId", "shiftIds"].includes(field.name)
+              ? { branchId: selectedBranchId }
+              : {}),
           },
         });
         return response.data.data || response.data || [];
       },
     })),
   });
+
+  const shiftIdsFieldIndex = fields.findIndex((field) => field.name === "shiftIds");
+  const shiftIdsField = shiftIdsFieldIndex >= 0 ? fields[shiftIdsFieldIndex] : undefined;
+  const shiftRawOptions =
+    shiftIdsFieldIndex >= 0 && Array.isArray(optionsQueries[shiftIdsFieldIndex]?.data)
+      ? (optionsQueries[shiftIdsFieldIndex]?.data as Array<Record<string, unknown>>)
+      : [];
+  const shiftSelectionOptions = useMemo(
+    () =>
+      buildResolvedOptions(shiftIdsField, shiftRawOptions).map((option) => ({
+        ...option,
+        code: String(option.raw?.code || option.label || ""),
+        name: String(option.raw?.name || option.label || ""),
+        startTime: String(option.raw?.startTime || ""),
+        endTime: String(option.raw?.endTime || ""),
+        isOvernight: Boolean(option.raw?.isOvernight),
+      })),
+    [shiftIdsField, shiftRawOptions],
+  );
+  const selectedShiftSuggestions = useMemo(
+    () =>
+      selectedShiftIds
+        .map((value) => shiftSelectionOptions.find((option) => option.value === value))
+        .filter((item): item is (typeof shiftSelectionOptions)[number] => Boolean(item)),
+    [selectedShiftIds, shiftSelectionOptions],
+  );
+  const shiftAssignmentSuggestion = useMemo(
+    () => buildShiftAssignmentSuggestion(selectedShiftSuggestions, shiftSelectionOptions.length),
+    [selectedShiftSuggestions, shiftSelectionOptions.length],
+  );
+
+  useEffect(() => {
+    if (!isStaffShiftAssignmentForm) {
+      return;
+    }
+
+    const previousBranchId = previousAssignmentBranchRef.current;
+    if (previousBranchId && selectedBranchId && previousBranchId !== selectedBranchId) {
+      form.setValue("userIds", [], { shouldDirty: true, shouldValidate: true });
+      form.setValue("userId", "", { shouldDirty: true, shouldValidate: true });
+      form.setValue("shiftIds", [], { shouldDirty: true, shouldValidate: true });
+      form.setValue("code", "", { shouldDirty: true, shouldValidate: false });
+      form.setValue("name", "", { shouldDirty: true, shouldValidate: false });
+      autoAssignmentCodeRef.current = "";
+      autoAssignmentNameRef.current = "";
+    }
+
+    previousAssignmentBranchRef.current = selectedBranchId;
+  }, [form, isStaffShiftAssignmentForm, selectedBranchId]);
+
+  useEffect(() => {
+    if (!isStaffShiftAssignmentForm) {
+      return;
+    }
+
+    const currentCode = String(form.getValues("code") || "");
+    const currentName = String(form.getValues("name") || "");
+    const nextCode = shiftAssignmentSuggestion.code;
+    const nextName = shiftAssignmentSuggestion.name;
+
+    if (!nextCode && currentCode === autoAssignmentCodeRef.current) {
+      form.setValue("code", "", { shouldDirty: true, shouldValidate: false });
+    } else if (nextCode && (!currentCode || currentCode === autoAssignmentCodeRef.current)) {
+      form.setValue("code", nextCode, { shouldDirty: true, shouldValidate: false });
+    }
+
+    if (!nextName && currentName === autoAssignmentNameRef.current) {
+      form.setValue("name", "", { shouldDirty: true, shouldValidate: false });
+    } else if (nextName && (!currentName || currentName === autoAssignmentNameRef.current)) {
+      form.setValue("name", nextName, { shouldDirty: true, shouldValidate: false });
+    }
+
+    autoAssignmentCodeRef.current = nextCode;
+    autoAssignmentNameRef.current = nextName;
+  }, [form, isStaffShiftAssignmentForm, shiftAssignmentSuggestion.code, shiftAssignmentSuggestion.name]);
+
+  useEffect(() => {
+    if (!isStaffShiftAssignmentForm || !isUnlimitedRotationSelected) {
+      return;
+    }
+
+    if (String(form.getValues("rotationCycleDays") || "") !== "1") {
+      form.setValue("rotationCycleDays", "1", {
+        shouldDirty: true,
+        shouldValidate: false,
+      });
+    }
+  }, [form, isStaffShiftAssignmentForm, isUnlimitedRotationSelected]);
 
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
@@ -204,6 +477,32 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
           return [[field.name, transformed]];
         }),
       );
+
+      if (isStaffShiftAssignmentForm) {
+        const normalizedShiftIds = Array.isArray(payload.shiftIds) ? payload.shiftIds.filter(Boolean) : [];
+        const includeAllShifts =
+          normalizedShiftIds.length > 0 &&
+          shiftSelectionOptions.length > 0 &&
+          normalizedShiftIds.length === shiftSelectionOptions.length;
+        const unlimitedRotation =
+          payload.isUnlimitedRotation === true || String(values.isUnlimitedRotation || "") === "true";
+        const parsedRotationCycleDays = Number(payload.rotationCycleDays || values.rotationCycleDays || 1);
+        const normalizedRotationCycleDays =
+          Number.isFinite(parsedRotationCycleDays) && parsedRotationCycleDays > 0 ? parsedRotationCycleDays : 1;
+
+        payload.includeAllShifts = includeAllShifts;
+        if (!payload.code && shiftAssignmentSuggestion.code) {
+          payload.code = shiftAssignmentSuggestion.code;
+        }
+        if (!payload.name && shiftAssignmentSuggestion.name) {
+          payload.name = shiftAssignmentSuggestion.name;
+        }
+        payload.isUnlimitedRotation = unlimitedRotation;
+        payload.rotationCycleDays = unlimitedRotation ? 1 : normalizedRotationCycleDays;
+        if (payload.isUnlimitedRotation === undefined && !initialValues?.id) {
+          payload.isUnlimitedRotation = true;
+        }
+      }
 
       if (initialValues?.id) {
         return api.patch(`${endpoint}/${initialValues.id}`, payload);
@@ -255,14 +554,7 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
             {fields.map((field, index) => {
               const optionsQuery = optionsQueries[index];
               const rawOptions = Array.isArray(optionsQuery.data) ? (optionsQuery.data as Array<Record<string, unknown>>) : [];
-              const options =
-                field.options ||
-                (rawOptions.length
-                  ? rawOptions.map((item) => ({
-                      label: resolveTextDisplay(item[field.optionLabelKey || "name"] || item.name || item.code || item.title, field.name, item),
-                      value: String(item[field.optionValueKey || "id"] || item.id || item.code),
-                    }))
-                  : []);
+              const options = buildResolvedOptions(field, rawOptions);
 
               const inputType =
                 field.type === "date"
@@ -369,6 +661,74 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
                     <textarea {...form.register(field.name)} placeholder={field.placeholder} />
                     {error ? <small>{error}</small> : null}
                   </>
+                ) : isStaffShiftAssignmentForm && field.name === "userIds" && field.multiple ? (
+                  <Controller
+                    control={form.control}
+                    name={field.name}
+                    render={({ field: controlledField }) => (
+                      <CompactMultiSelectField
+                        error={error}
+                        helperText={translateText("Chọn nhanh một hoặc nhiều nhân viên, hoặc bấm Chọn tất cả để phân đồng loạt.")}
+                        items={options.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                          description: String(option.raw?.title || option.raw?.attendanceCode || option.raw?.employeeCode || ""),
+                          meta: String(option.raw?.branchName || ""),
+                        }))}
+                        label={field.label}
+                        onChange={(nextValue) => controlledField.onChange(nextValue)}
+                        searchPlaceholder={translateText("Tìm nhân viên cần phân ca")}
+                        selectAllLabel={translateText("Chọn tất cả nhân viên")}
+                        value={Array.isArray(controlledField.value) ? controlledField.value.map((item) => String(item)) : []}
+                      />
+                    )}
+                  />
+                ) : isStaffShiftAssignmentForm && field.name === "shiftIds" && field.multiple ? (
+                  <Controller
+                    control={form.control}
+                    name={field.name}
+                    render={({ field: controlledField }) => (
+                      <CompactMultiSelectField
+                        error={error}
+                        helperText={translateText("Chọn nhanh một ca, nhiều ca hoặc bấm Chọn tất cả để tạo lịch xoay.")}
+                        items={options.map((option) => ({
+                          value: option.value,
+                          label: `${String(option.raw?.code || option.label || "")} - ${String(option.raw?.name || option.label || "")}`,
+                          description: [
+                            String(option.raw?.startTime || ""),
+                            String(option.raw?.endTime || ""),
+                          ]
+                            .filter(Boolean)
+                            .join(" - ")
+                            .concat(option.raw?.isOvernight ? " (+1)" : ""),
+                          meta: option.raw?.isOvernight ? translateText("Ca qua đêm") : translateText("Trong ngày"),
+                        }))}
+                        label={field.label}
+                        onChange={(nextValue) => controlledField.onChange(nextValue)}
+                        searchPlaceholder={translateText("Tìm mã ca, tên ca, giờ ca")}
+                        selectAllLabel={translateText("Chọn tất cả ca")}
+                        value={Array.isArray(controlledField.value) ? controlledField.value.map((item) => String(item)) : []}
+                      />
+                    )}
+                  />
+                ) : isStaffShiftAssignmentForm && field.name === "rotationCycleDays" ? (
+                  <>
+                    <input
+                      {...form.register(field.name)}
+                      className={cn(isUnlimitedRotationSelected ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400" : "")}
+                      disabled={isUnlimitedRotationSelected}
+                      placeholder={translateText(field.placeholder || "")}
+                      step="1"
+                      type="number"
+                    />
+                    {isUnlimitedRotationSelected ? (
+                      <small className="!text-slate-500">
+                        {translateText("Đã bật ca xoay không thời hạn nên chu kỳ xoay được khóa.")}
+                      </small>
+                    ) : error ? (
+                      <small>{error}</small>
+                    ) : null}
+                  </>
                 ) : field.type === "select" ? (
                   <>
                     <select
@@ -383,6 +743,90 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
                         </option>
                       ))}
                     </select>
+                    {error ? <small>{error}</small> : null}
+                  </>
+                ) : field.name === "logoUrl" ? (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex flex-col gap-2 md:flex-row">
+                        <input
+                          {...form.register(field.name)}
+                          placeholder={translateText(field.placeholder || "")}
+                          type="text"
+                        />
+                        <input
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleLogoUpload}
+                          ref={logoInputRef}
+                          type="file"
+                        />
+                        <button
+                          className="secondary-button shrink-0"
+                          disabled={uploadingLogo}
+                          onClick={() => logoInputRef.current?.click()}
+                          type="button"
+                        >
+                          {uploadingLogo ? translateText("Dang tai logo...") : translateText("Tai logo len")}
+                        </button>
+                        {selectedLogoUrl ? (
+                          <a
+                            className="secondary-button shrink-0"
+                            href={resolveAssetUrl(selectedLogoUrl)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {translateText("Xem logo")}
+                          </a>
+                        ) : null}
+                      </div>
+                      <small className="!text-slate-500">
+                        {translateText("Ban co the paste URL logo hoac bam 'Tai logo len'. Sau khi upload xong, he thong se tu dien URL vao o nay.")}
+                      </small>
+                    </div>
+                    {logoUploadError ? <small>{logoUploadError}</small> : null}
+                    {error ? <small>{error}</small> : null}
+                  </>
+                ) : field.name === "avatarUrl" ? (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex flex-col gap-2 md:flex-row">
+                        <input
+                          {...form.register(field.name)}
+                          placeholder={translateText(field.placeholder || "")}
+                          type="text"
+                        />
+                        <input
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleAvatarUpload}
+                          ref={avatarInputRef}
+                          type="file"
+                        />
+                        <button
+                          className="secondary-button shrink-0"
+                          disabled={uploadingAvatar}
+                          onClick={() => avatarInputRef.current?.click()}
+                          type="button"
+                        >
+                          {uploadingAvatar ? translateText("Dang tai anh...") : translateText("Tai anh len")}
+                        </button>
+                        {selectedAvatarUrl ? (
+                          <a
+                            className="secondary-button shrink-0"
+                            href={resolveAssetUrl(selectedAvatarUrl)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {translateText("Xem anh")}
+                          </a>
+                        ) : null}
+                      </div>
+                      <small className="!text-slate-500">
+                        {translateText("Ban co the paste URL anh dai dien hoac bam 'Tai anh len'. Sau khi upload xong, he thong se tu dien URL vao o nay.")}
+                      </small>
+                    </div>
+                    {avatarUploadError ? <small>{avatarUploadError}</small> : null}
                     {error ? <small>{error}</small> : null}
                   </>
                 ) : (
@@ -401,7 +845,9 @@ export function FormDialog({ open, title, definition, endpoint, initialValues, q
                 field.type === "line-items" ||
                 field.type === "purchase-order-items" ||
                 field.type === "checklist" ||
-                field.type === "permission-matrix"
+                field.type === "permission-matrix" ||
+                (isStaffShiftAssignmentForm && field.name === "userIds" && field.multiple) ||
+                (isStaffShiftAssignmentForm && field.name === "shiftIds" && field.multiple)
               ) {
                 return (
                   <div className={cn(getFieldSpanClass(field.span))} key={field.name}>

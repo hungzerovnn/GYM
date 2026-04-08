@@ -19,6 +19,7 @@
     "license:tool": "npm --prefix apps/api exec -- tsx tools/license-keygen/cli.ts",
     "db:generate": "npm --prefix apps/api run db:generate",
     "db:migrate": "npm --prefix apps/api run db:migrate",
+    "db:migrate:dev": "npm --prefix apps/api run db:migrate:dev",
     "db:seed:api": "npm --prefix apps/api run db:seed"
   },
   "devDependencies": {

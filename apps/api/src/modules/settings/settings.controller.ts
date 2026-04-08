@@ -114,6 +114,20 @@ export class SettingsController {
     return this.settingsService.updateGeneralSetting(dto, user);
   }
 
+  @Get('system-printers')
+  @Permissions('settings.view')
+  listSystemPrinters() {
+    return this.settingsService.listSystemPrinters();
+  }
+
+  @Get('system-printers/:printerName/paper-sizes')
+  @Permissions('settings.view')
+  listPrinterPaperSizes(@Param('printerName') printerName: string) {
+    return this.settingsService.listPrinterPaperSizes(
+      decodeURIComponent(printerName),
+    );
+  }
+
   @Get(':settingKey')
   @Permissions('settings.view')
   getScopedJsonSetting(

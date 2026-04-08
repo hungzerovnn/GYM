@@ -8,7 +8,8 @@
   "scripts": {
     "build": "nest build",
     "db:generate": "dotenv -o -e ../../.env -- prisma generate --schema ../../prisma/schema.prisma && node ../../scripts/sync-prisma-client.cjs",
-    "db:migrate": "dotenv -o -e ../../.env -- prisma migrate dev --schema ../../prisma/schema.prisma && node ../../scripts/sync-prisma-client.cjs",
+    "db:migrate": "dotenv -o -e ../../.env -- prisma migrate deploy --schema ../../prisma/schema.prisma && npm run db:generate",
+    "db:migrate:dev": "dotenv -o -e ../../.env -- prisma migrate dev --schema ../../prisma/schema.prisma && node ../../scripts/sync-prisma-client.cjs",
     "db:seed": "dotenv -o -e ../../.env -- prisma db seed --schema ../../prisma/schema.prisma",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "dotenv -o -e ../../.env -- nest start",
@@ -61,7 +62,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "tsx": "^4.21.0",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "zkteco-js": "^1.7.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

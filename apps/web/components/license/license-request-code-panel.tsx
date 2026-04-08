@@ -93,10 +93,10 @@ export function LicenseRequestCodePanel({
 
   if (variant === "compact") {
     return (
-      <div className="flex min-w-[320px] flex-col gap-2">
+      <div className="flex min-w-0 w-full max-w-[332px] flex-col gap-2 justify-self-end">
         <div className="flex flex-wrap items-center gap-2">
           <select
-            className="min-w-[180px] flex-1 rounded-[0.85rem] border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 outline-none"
+            className="min-w-0 flex-1 rounded-[0.85rem] border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 outline-none"
             onChange={(event) => setPlanCode(event.target.value as LicensePlanCode)}
             value={planCode}
           >
@@ -107,15 +107,15 @@ export function LicenseRequestCodePanel({
             ))}
           </select>
 
-          <button className="primary-button !rounded-[0.9rem] !px-4 !py-2" onClick={() => void copyRequestCode()} type="button">
+          <button className="primary-button shrink-0 !rounded-[0.9rem] !px-4 !py-2" onClick={() => void copyRequestCode()} type="button">
             <Copy className="h-3.5 w-3.5" />
             {translateText("Copy request code")}
           </button>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] text-slate-500">{getLicensePlanDuration(planCode, locale)}</div>
-          <Link className="secondary-button !rounded-[0.9rem] !px-4 !py-2" href="/license">
+          <div className="min-w-0 flex-1 text-[11px] text-slate-500">{getLicensePlanDuration(planCode, locale)}</div>
+          <Link className="secondary-button shrink-0 !rounded-[0.9rem] !px-4 !py-2" href="/license">
             {translateText("License center")}
           </Link>
         </div>

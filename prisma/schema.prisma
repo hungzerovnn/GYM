@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserStatus {
@@ -151,6 +152,91 @@ enum StaffAttendanceMethod {
   MANUAL
 }
 
+enum MemberPresenceStatus {
+  ACTIVE
+  OFF
+  AUTO_CLOSED
+}
+
+enum MemberPresenceSource {
+  MANUAL
+  MACHINE
+}
+
+enum AttendanceMachineVendor {
+  GENERIC
+  ZKTECO
+  HIKVISION
+  SUPREMA
+  ANVIZ
+  RONALD_JACK
+}
+
+enum AttendanceMachineType {
+  FINGERPRINT
+  FACE
+  CARD
+  HYBRID
+}
+
+enum AttendanceMachineProtocol {
+  GENERIC_EXPORT
+  CSV_IMPORT
+  ZK_PULL_TCP
+  ZK_ADMS_PUSH
+  HIKVISION_ISAPI
+  SUPREMA_BIOSTAR
+  GENERIC_HTTP
+}
+
+enum AttendancePersonType {
+  STAFF
+  CUSTOMER
+}
+
+enum AttendanceSyncStatus {
+  PENDING
+  SYNCED
+  ERROR
+  DISABLED
+}
+
+enum AttendanceEnrollmentType {
+  FACE
+  CARD
+  FINGERPRINT
+}
+
+enum AttendanceEnrollmentStatus {
+  PENDING_CAPTURE
+  CAPTURED
+  UPLOADED_TO_MACHINE
+  DOWNLOADED_FROM_MACHINE
+  CONFIRMED
+  FAILED
+}
+
+enum AttendanceBiometricAssetType {
+  FACE_IMAGE
+  FACE_TEMPLATE
+  FINGERPRINT_TEMPLATE
+  CARD_METADATA
+}
+
+enum AttendanceStorageProvider {
+  R2
+  MINIO
+  LOCAL
+  REMOTE_DEVICE
+}
+
+enum AttendanceBiometricAssetSource {
+  DEVICE
+  UPLOAD
+  IMPORT
+  SDK_EXPORT
+}
+
 enum NotificationType {
   INFO
   WARNING
@@ -205,7 +291,13 @@ model Branch {
   suppliers          Supplier[]
   purchaseOrders     PurchaseOrder[]
   attendanceMachines AttendanceMachine[]
+  attendanceMachinePersonMaps AttendanceMachinePersonMap[]
+  attendanceEnrollments AttendanceEnrollment[]
+  attendanceBiometricAssets AttendanceBiometricAsset[]
   staffAttendanceEvents StaffAttendanceEvent[]
+  staffShifts         StaffShift[]
+  staffShiftAssignments StaffShiftAssignment[]
+  memberPresenceSessions MemberPresenceSession[]
   smsConfigs         SmsConfig[]
   emailConfigs       EmailConfig[]
   zaloConfigs        ZaloConfig[]
@@ -248,6 +340,7 @@ model User {
   contractsSold    Contract[] @relation("ContractSaleUser")
   loginOtpChallenges LoginOtpChallenge[]
   staffAttendanceEvents StaffAttendanceEvent[]
+  staffShiftAssignments StaffShiftAssignment[]
 
   @@index([branchId, status])
   @@index([employeeCode])
@@ -391,6 +484,7 @@ model Customer {
   trainingSessions TrainingSession[]
   attendance       TrainingAttendance[]
   receipts         PaymentReceipt[]
+  memberPresenceSessions MemberPresenceSession[]
 
   @@unique([branchId, code])
   @@index([branchId, membershipStatus])
@@ -980,19 +1074,130 @@ model AttendanceMachine {
   branchId         String
   code             String   @unique
   name             String
+  vendor           AttendanceMachineVendor   @default(GENERIC)
+  machineType      AttendanceMachineType     @default(FINGERPRINT)
+  protocol         AttendanceMachineProtocol @default(GENERIC_EXPORT)
+  model            String?
+  deviceIdentifier String?
+  commKey          String?
   connectionPort   String?
   host             String?
+  username         String?
   password         String?
+  apiKey           String?
+  webhookSecret    String?
+  timeZone         String   @default("Asia/Bangkok")
+  pollingIntervalSeconds Int @default(300)
+  supportsFaceImage Boolean @default(false)
+  supportsFaceTemplate Boolean @default(false)
+  supportsCardEnrollment Boolean @default(false)
+  supportsFingerprintTemplate Boolean @default(false)
+  supportsWebhook  Boolean  @default(false)
   syncEnabled      Boolean  @default(true)
   connectionStatus String   @default("DISCONNECTED")
   lastSyncedAt     DateTime?
+  lastHeartbeatAt  DateTime?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  lastLogCursor    String?
+  lastUserSyncCursor String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   branch           Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  personMappings   AttendanceMachinePersonMap[]
+  attendanceEnrollments AttendanceEnrollment[]
+  biometricAssets  AttendanceBiometricAsset[]
   staffAttendanceEvents StaffAttendanceEvent[]
+  memberPresenceSessions MemberPresenceSession[]
 
   @@index([branchId, connectionStatus])
   @@map("attendance_machines")
+}
+
+model AttendanceMachinePersonMap {
+  id                 String               @id @default(cuid())
+  branchId           String
+  attendanceMachineId String
+  personType         AttendancePersonType
+  personId           String
+  appAttendanceCode  String?
+  machineUserId      String?
+  machineCode        String?
+  cardCode           String?
+  faceProfileId      String?
+  fingerprintProfileId String?
+  syncStatus         AttendanceSyncStatus @default(PENDING)
+  lastSyncedAt       DateTime?
+  lastError          String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  branch             Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  attendanceMachine  AttendanceMachine    @relation(fields: [attendanceMachineId], references: [id], onDelete: Cascade)
+  attendanceEnrollments AttendanceEnrollment[]
+
+  @@unique([attendanceMachineId, personType, personId])
+  @@index([branchId, attendanceMachineId])
+  @@index([personType, personId])
+  @@index([attendanceMachineId, machineUserId])
+  @@map("attendance_machine_person_maps")
+}
+
+model AttendanceEnrollment {
+  id                 String                      @id @default(cuid())
+  branchId           String
+  attendanceMachineId String
+  personMapId        String?
+  personType         AttendancePersonType
+  personId           String
+  enrollmentType     AttendanceEnrollmentType
+  status             AttendanceEnrollmentStatus @default(PENDING_CAPTURE)
+  capturedAt         DateTime?
+  confirmedAt        DateTime?
+  machineUserId      String?
+  qualityScore       Decimal?                   @db.Decimal(5, 2)
+  templateVersion    String?
+  note               String?
+  metadataJson       Json?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  branch             Branch                     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  attendanceMachine  AttendanceMachine          @relation(fields: [attendanceMachineId], references: [id], onDelete: Cascade)
+  personMap          AttendanceMachinePersonMap? @relation(fields: [personMapId], references: [id], onDelete: SetNull)
+  assets             AttendanceBiometricAsset[]
+
+  @@index([branchId, attendanceMachineId])
+  @@index([personType, personId])
+  @@index([attendanceMachineId, status])
+  @@index([personMapId])
+  @@map("attendance_enrollments")
+}
+
+model AttendanceBiometricAsset {
+  id                 String                         @id @default(cuid())
+  branchId           String
+  attendanceMachineId String
+  enrollmentId       String?
+  personType         AttendancePersonType
+  personId           String
+  assetType          AttendanceBiometricAssetType
+  storageProvider    AttendanceStorageProvider
+  source             AttendanceBiometricAssetSource @default(UPLOAD)
+  storageKey         String
+  originalFilename   String?
+  mimeType           String?
+  fileSize           Int?
+  sha256             String?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  branch             Branch                         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  attendanceMachine  AttendanceMachine              @relation(fields: [attendanceMachineId], references: [id], onDelete: Cascade)
+  enrollment         AttendanceEnrollment?          @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, attendanceMachineId, assetType])
+  @@index([personType, personId])
+  @@index([enrollmentId])
+  @@index([sha256])
+  @@map("attendance_biometric_assets")
 }
 
 model StaffAttendanceEvent {
@@ -1016,6 +1221,95 @@ model StaffAttendanceEvent {
   @@index([userId, eventAt])
   @@index([attendanceMachineId, eventAt])
   @@map("staff_attendance_events")
+}
+
+model StaffShift {
+  id                         String   @id @default(cuid())
+  branchId                   String
+  code                       String
+  name                       String
+  startTime                  String
+  endTime                    String
+  breakMinutes               Int      @default(0)
+  workHours                  Float?
+  lateToleranceMinutes       Int      @default(0)
+  earlyLeaveToleranceMinutes Int      @default(0)
+  overtimeAfterMinutes       Int      @default(0)
+  mealAllowance              Float    @default(0)
+  nightAllowance             Float    @default(0)
+  isOvernight                Boolean  @default(false)
+  note                       String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  deletedAt                  DateTime?
+  branch                     Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignments                StaffShiftAssignmentShift[]
+
+  @@unique([branchId, code])
+  @@index([branchId, deletedAt])
+  @@map("staff_shifts")
+}
+
+model StaffShiftAssignment {
+  id                  String   @id @default(cuid())
+  branchId            String
+  userId              String
+  code                String
+  name                String?
+  startDate           DateTime
+  endDate             DateTime?
+  rotationCycleDays   Int      @default(1)
+  isUnlimitedRotation Boolean  @default(false)
+  includeAllShifts    Boolean  @default(false)
+  note                String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
+  branch              Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shifts              StaffShiftAssignmentShift[]
+
+  @@unique([branchId, code])
+  @@index([branchId, userId, startDate, deletedAt])
+  @@index([userId, deletedAt])
+  @@map("staff_shift_assignments")
+}
+
+model StaffShiftAssignmentShift {
+  assignmentId String
+  shiftId      String
+  sequence     Int                  @default(0)
+  assignment   StaffShiftAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  shift        StaffShift           @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@id([assignmentId, shiftId])
+  @@unique([assignmentId, sequence])
+  @@index([shiftId])
+  @@map("staff_shift_assignment_shifts")
+}
+
+model MemberPresenceSession {
+  id                  String               @id @default(cuid())
+  branchId            String
+  customerId          String
+  attendanceMachineId String?
+  checkInAt           DateTime
+  checkOutAt          DateTime?
+  autoClosedAt        DateTime?
+  graceHours          Int                  @default(6)
+  status              MemberPresenceStatus @default(ACTIVE)
+  source              MemberPresenceSource @default(MANUAL)
+  note                String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  branch              Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer            Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  attendanceMachine   AttendanceMachine?   @relation(fields: [attendanceMachineId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, status, checkInAt])
+  @@index([customerId, checkInAt])
+  @@index([attendanceMachineId, checkInAt])
+  @@map("member_presence_sessions")
 }
 
 model SmsConfig {

@@ -9,8 +9,8 @@
   },
   "vars": {
     "APP_ENV": "production",
-    "BACKEND_API_URL": "https://<your-railway-backend>.up.railway.app",
-    "FRONTEND_ORIGINS": "https://gymvnchoice.pages.dev",
-    "CORS_ALLOWED_ORIGINS": "https://gymvnchoice.pages.dev,https://gymvnchoice-web.hungzerovnn.workers.dev"
+    "BACKEND_API_URL": "https://gym-production-0913.up.railway.app",
+    "FRONTEND_ORIGINS": "https://gymvnchoice.pages.dev,https://gym.thecodehotel.com.vn",
+    "CORS_ALLOWED_ORIGINS": "https://gymvnchoice.pages.dev,https://gymvnchoice-web.hungzerovnn.workers.dev,https://gym.thecodehotel.com.vn"
   }
 }

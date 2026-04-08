@@ -5,8 +5,16 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { AuditAction, Prisma, PrismaClient } from '@prisma/client';
+import {
+  AttendanceMachineProtocol,
+  AttendanceMachineType,
+  AttendanceMachineVendor,
+  AuditAction,
+  Prisma,
+  PrismaClient,
+} from '@prisma/client';
 import { hash } from 'bcryptjs';
+import { addDays, endOfDay, startOfDay } from 'date-fns';
 import { execFile } from 'child_process';
 import { resolve } from 'path';
 import { promisify } from 'util';
@@ -20,13 +28,21 @@ import {
   buildPagination,
   buildSort,
 } from '../../common/utils/query.util';
+import {
+  resolveShiftForDate,
+  summarizeShiftAttendance,
+} from '../../common/utils/staff-shift.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AttendanceDevicesService } from '../attendance-devices/attendance-devices.service';
+import { AttendanceDeviceLogRangePayload } from '../attendance-devices/attendance-device.types';
 import {
   AttendanceMachineMaintenanceDto,
   CreateAttendanceMachineDto,
   CreateBranchDto,
   CreateRoleDto,
+  CreateStaffShiftAssignmentDto,
+  CreateStaffShiftDto,
   CreateStaffAttendanceEventDto,
   CreateTenantDatabaseDto,
   CreateUserDto,
@@ -34,6 +50,8 @@ import {
   UpdateAttendanceMachineDto,
   UpdateBranchDto,
   UpdateRoleDto,
+  UpdateStaffShiftAssignmentDto,
+  UpdateStaffShiftDto,
   UpdateStaffAttendanceEventDto,
   UpdateTenantDatabaseDto,
   UpdateUserDto,
@@ -59,6 +77,7 @@ export class SystemService {
     private readonly prisma: PrismaService,
     private readonly tenantCatalogService: TenantCatalogService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly attendanceDevicesService: AttendanceDevicesService,
   ) {}
 
   private isGlobal(user: AuthUser) {
@@ -153,6 +172,338 @@ export class SystemService {
       this.normalizeAttendanceCode(input.username) ||
       this.normalizeAttendanceCode(fallbackUsername)
     );
+  }
+
+  private buildStaffShiftCode() {
+    return `SHIFT-${Date.now().toString(36).toUpperCase()}`;
+  }
+
+  private buildStaffShiftAssignmentCode(
+    userSeed?: string | null,
+    offset = 0,
+  ) {
+    const baseSeed = this.normalizeAttendanceCode(userSeed) || 'STAFF';
+    const entropy = Date.now().toString(36).toUpperCase();
+    return `SCA-${baseSeed}-${entropy}${offset ? `-${offset + 1}` : ''}`;
+  }
+
+  private buildStaffShiftAssignmentSuggestion(
+    shifts: Array<{ code?: string | null; name?: string | null }>,
+    includeAllShifts: boolean,
+  ) {
+    if (!shifts.length) {
+      return {
+        code: '',
+        name: '',
+      };
+    }
+
+    if (includeAllShifts) {
+      return {
+        code: 'ALL-CA',
+        name: 'Tat ca ca',
+      };
+    }
+
+    const firstShift = shifts[0];
+    const firstCode = this.normalizeAttendanceCode(firstShift.code) || 'SHIFT';
+    const firstName = String(firstShift.name || firstShift.code || 'Ca lam').trim();
+
+    if (shifts.length === 1) {
+      return {
+        code: firstCode,
+        name: firstName,
+      };
+    }
+
+    return {
+      code: `XOAY-${firstCode}`,
+      name: `Ca xoay ${shifts.length} ca`,
+    };
+  }
+
+  private async resolveShiftAssignmentIncludeAllFlag(
+    branchId: string,
+    shiftCount: number,
+    explicit?: boolean,
+  ) {
+    if (explicit !== undefined) {
+      return explicit;
+    }
+
+    if (!shiftCount) {
+      return false;
+    }
+
+    const totalShiftCount = await this.prisma.staffShift.count({
+      where: {
+        branchId,
+        deletedAt: null,
+      },
+    });
+
+    return totalShiftCount > 0 && shiftCount === totalShiftCount;
+  }
+
+  private async buildUniqueStaffShiftAssignmentCodes(
+    branchId: string,
+    baseCode: string,
+    total: number,
+  ) {
+    const normalizedBase =
+      this.normalizeAttendanceCode(baseCode) || this.buildStaffShiftAssignmentCode();
+    const existingAssignments = await this.prisma.staffShiftAssignment.findMany({
+      where: {
+        branchId,
+        code: {
+          startsWith: normalizedBase,
+        },
+      },
+      select: {
+        code: true,
+      },
+    });
+
+    const takenCodes = new Set(existingAssignments.map((item) => item.code));
+    const nextCodes: string[] = [];
+    let suffix = 0;
+
+    while (nextCodes.length < total) {
+      const candidate = suffix === 0 ? normalizedBase : `${normalizedBase}-${suffix}`;
+      if (!takenCodes.has(candidate)) {
+        nextCodes.push(candidate);
+        takenCodes.add(candidate);
+      }
+      suffix += 1;
+    }
+
+    return nextCodes;
+  }
+
+  private resolveShiftAssignmentCycleDays(value?: number | null) {
+    return Math.max(1, Number(value || 1));
+  }
+
+  private resolveShiftAssignmentEffectiveEndDate(assignment: any) {
+    if (assignment.endDate) {
+      return endOfDay(new Date(assignment.endDate));
+    }
+
+    if (assignment.isUnlimitedRotation) {
+      return null;
+    }
+
+    const shiftCount = this.orderedAssignmentShiftLinks(assignment).length;
+    if (!shiftCount) {
+      return null;
+    }
+
+    const cycleDays = this.resolveShiftAssignmentCycleDays(
+      assignment.rotationCycleDays,
+    );
+    return endOfDay(
+      addDays(
+        startOfDay(new Date(assignment.startDate)),
+        shiftCount * cycleDays - 1,
+      ),
+    );
+  }
+
+  private mapStaffShiftRecord(shift: any) {
+    return {
+      id: shift.id,
+      branchId: shift.branchId,
+      branchName: shift.branch?.name || '',
+      code: shift.code,
+      name: shift.name,
+      startTime: shift.startTime || '',
+      endTime: shift.endTime || '',
+      shiftWindow: [shift.startTime || '--:--', shift.endTime || '--:--']
+        .join(' - ')
+        .concat(shift.isOvernight ? ' (+1)' : ''),
+      breakMinutes: Number(shift.breakMinutes || 0),
+      workHours: Number(shift.workHours || 0),
+      lateToleranceMinutes: Number(shift.lateToleranceMinutes || 0),
+      earlyLeaveToleranceMinutes: Number(
+        shift.earlyLeaveToleranceMinutes || 0,
+      ),
+      overtimeAfterMinutes: Number(shift.overtimeAfterMinutes || 0),
+      mealAllowance: Number(shift.mealAllowance || 0),
+      nightAllowance: Number(shift.nightAllowance || 0),
+      isOvernight: Boolean(shift.isOvernight),
+      overnightLabel: Boolean(shift.isOvernight) ? 'Ca qua dem' : 'Trong ngay',
+      note: shift.note || '',
+      assignmentCount:
+        typeof shift._count?.assignments === 'number'
+          ? shift._count.assignments
+          : 0,
+      createdAt: shift.createdAt?.toISOString() || '',
+      updatedAt: shift.updatedAt?.toISOString() || '',
+      createdDateTime: shift.createdAt?.toISOString() || '',
+      updatedDateTime: shift.updatedAt?.toISOString() || '',
+    };
+  }
+
+  private orderedAssignmentShiftLinks(assignment: any) {
+    return Array.isArray(assignment.shifts)
+      ? [...assignment.shifts].sort(
+          (left: any, right: any) => left.sequence - right.sequence,
+        )
+      : [];
+  }
+
+  private resolveCurrentStaffShift(assignment: any, referenceDate = new Date()) {
+    const orderedShiftLinks = this.orderedAssignmentShiftLinks(assignment);
+    const pattern = {
+      startDate: assignment.startDate,
+      endDate: assignment.endDate,
+      rotationCycleDays: assignment.rotationCycleDays,
+      isUnlimitedRotation: assignment.isUnlimitedRotation,
+      shifts: orderedShiftLinks
+        .map((item: any) => item.shift)
+        .filter(Boolean),
+    };
+
+    if (!pattern.shifts.length) {
+      return null;
+    }
+
+    const previousTargetDate = addDays(startOfDay(referenceDate), -1);
+    const previousResolved = resolveShiftForDate(pattern, previousTargetDate);
+    if (
+      previousResolved &&
+      previousResolved.window.startAt <= referenceDate &&
+      previousResolved.window.endAt >= referenceDate
+    ) {
+      return {
+        targetDate: previousTargetDate,
+        ...previousResolved,
+      };
+    }
+
+    const todayResolved = resolveShiftForDate(pattern, referenceDate);
+    if (!todayResolved) {
+      return null;
+    }
+
+    return {
+      targetDate: startOfDay(referenceDate),
+      ...todayResolved,
+    };
+  }
+
+  private mapStaffShiftAssignmentRecord(
+    assignment: any,
+    eventsByUser: Record<string, Array<{ eventAt: Date; eventType: string }>> =
+      {},
+    referenceDate = new Date(),
+  ) {
+    const orderedShiftLinks = this.orderedAssignmentShiftLinks(assignment);
+    const orderedShifts = orderedShiftLinks
+      .map((item: any) => item.shift)
+      .filter(Boolean);
+    const effectiveEndDate = this.resolveShiftAssignmentEffectiveEndDate(
+      assignment,
+    );
+    const rotationCycleDays = this.resolveShiftAssignmentCycleDays(
+      assignment.rotationCycleDays,
+    );
+    const currentShift = this.resolveCurrentStaffShift(assignment, referenceDate);
+    const targetDate = currentShift?.targetDate || startOfDay(referenceDate);
+    const shiftSummary = summarizeShiftAttendance({
+      shift: currentShift?.shift || null,
+      targetDate,
+      events: eventsByUser[assignment.userId] || [],
+      now: referenceDate,
+    });
+    const currentShiftStatus = currentShift
+      ? shiftSummary.status
+      : startOfDay(referenceDate) < startOfDay(new Date(assignment.startDate))
+        ? 'UPCOMING'
+        : effectiveEndDate &&
+            startOfDay(referenceDate) > effectiveEndDate
+          ? 'EXPIRED'
+          : 'UNASSIGNED';
+
+    return {
+      id: assignment.id,
+      branchId: assignment.branchId,
+      branchName: assignment.branch?.name || '',
+      userId: assignment.userId,
+      user: assignment.user
+        ? {
+            id: assignment.user.id,
+            username: assignment.user.username,
+            fullName: assignment.user.fullName,
+          }
+        : null,
+      code: assignment.code,
+      name:
+        assignment.name ||
+        `${assignment.user?.fullName || assignment.user?.username || 'Nhan vien'} - Phan ca`,
+      staffName: assignment.user?.fullName || '',
+      staffCode: this.resolveEmployeeCode(assignment.user) || '',
+      attendanceCode: this.resolveStaffAttendanceCode(assignment.user) || '',
+      username: assignment.user?.username || '',
+      shiftIds: orderedShiftLinks.map((item: any) => item.shiftId),
+      shifts: orderedShiftLinks.map((item: any) => ({
+        shiftId: item.shiftId,
+        sequence: item.sequence,
+        shift: item.shift ? this.mapStaffShiftRecord(item.shift) : null,
+      })),
+      shiftCount: orderedShifts.length,
+      shiftNames: orderedShifts.map((item: any) => item.name).join(' -> '),
+      shiftCodes: orderedShifts.map((item: any) => item.code).join(', '),
+      shiftPatternLabel: orderedShifts
+        .map(
+          (item: any) =>
+            `${item.code || '-'} (${item.startTime || '--:--'} - ${item.endTime || '--:--'}${
+              item.isOvernight ? ' +1' : ''
+            })`,
+        )
+        .join(' -> '),
+      rotationLabel:
+        orderedShifts.length <= 1
+          ? 'Ca co dinh'
+          : assignment.isUnlimitedRotation
+            ? `Ca xoay moi ${rotationCycleDays} ngay - khong thoi han`
+            : `Ca xoay moi ${rotationCycleDays} ngay`,
+      rotationCycleDays,
+      rotationCycleLabel:
+        rotationCycleDays === 1
+          ? 'Doi ca moi ngay'
+          : `Doi ca moi ${rotationCycleDays} ngay`,
+      includeAllShifts: Boolean(assignment.includeAllShifts),
+      includeAllShiftsLabel: Boolean(assignment.includeAllShifts)
+        ? 'Lay tat ca ca dang active'
+        : 'Chi cac ca duoc chon',
+      isUnlimitedRotation: Boolean(assignment.isUnlimitedRotation),
+      startDate: assignment.startDate?.toISOString() || '',
+      endDate: assignment.endDate?.toISOString() || '',
+      effectiveFromDate: assignment.startDate?.toISOString() || '',
+      effectiveToDate: effectiveEndDate?.toISOString() || '',
+      effectiveRange: effectiveEndDate
+        ? `${this.attendanceDateKey(assignment.startDate)} -> ${this.attendanceDateKey(effectiveEndDate)}`
+        : `${this.attendanceDateKey(assignment.startDate)} -> Khong gioi han`,
+      currentShiftCode: currentShift?.shift?.code || '',
+      currentShiftName: currentShift?.shift?.name || '',
+      currentShiftWindow: currentShift?.window?.label || '',
+      currentShiftStatus,
+      currentShiftDate: currentShift?.targetDate
+        ? this.attendanceDateKey(currentShift.targetDate)
+        : '',
+      firstCheckInAt: shiftSummary.firstCheckIn?.toISOString() || '',
+      lastCheckOutAt: shiftSummary.lastCheckOut?.toISOString() || '',
+      workedHours: Math.round((shiftSummary.workedMinutes / 60) * 10) / 10,
+      lateMinutes: shiftSummary.lateMinutes,
+      earlyLeaveMinutes: shiftSummary.earlyLeaveMinutes,
+      overtimeMinutes: shiftSummary.overtimeMinutes,
+      note: assignment.note || '',
+      createdAt: assignment.createdAt?.toISOString() || '',
+      updatedAt: assignment.updatedAt?.toISOString() || '',
+      createdDateTime: assignment.createdAt?.toISOString() || '',
+      updatedDateTime: assignment.updatedAt?.toISOString() || '',
+    };
   }
 
   private mapStaffAttendanceEvent(
@@ -410,10 +761,28 @@ export class SystemService {
       branchName: machine.branch?.name || '',
       code: machine.code,
       name: machine.name,
+      vendor: machine.vendor || 'GENERIC',
+      machineType: machine.machineType || 'FINGERPRINT',
+      protocol: machine.protocol || 'GENERIC_EXPORT',
+      model: machine.model || '',
+      deviceIdentifier: machine.deviceIdentifier || '',
       connectionPort: machine.connectionPort || '',
       host: machine.host || '',
+      username: machine.username || '',
+      commKeyConfigured: Boolean(machine.commKey),
+      commKeyStatus: machine.commKey ? 'Da cau hinh' : 'Chua cau hinh',
+      timeZone: machine.timeZone || 'Asia/Bangkok',
+      pollingIntervalSeconds:
+        Number(machine.pollingIntervalSeconds || 0) || 300,
       hasPassword: Boolean(machine.password),
       passwordStatus: machine.password ? 'Da cau hinh' : 'Chua cau hinh',
+      apiKeyConfigured: Boolean(machine.apiKey),
+      webhookConfigured: Boolean(machine.webhookSecret),
+      supportsFaceImage: Boolean(machine.supportsFaceImage),
+      supportsFaceTemplate: Boolean(machine.supportsFaceTemplate),
+      supportsCardEnrollment: Boolean(machine.supportsCardEnrollment),
+      supportsFingerprintTemplate: Boolean(machine.supportsFingerprintTemplate),
+      supportsWebhook: Boolean(machine.supportsWebhook),
       syncEnabled: machine.syncEnabled,
       syncLabel: machine.syncEnabled ? 'Bat dong bo' : 'Tat dong bo',
       connectionStatus: machine.connectionStatus,
@@ -421,11 +790,122 @@ export class SystemService {
         machine._count?.staffAttendanceEvents ?? (recentEvents?.length || 0),
       lastSyncedAt: machine.lastSyncedAt?.toISOString() || '',
       lastSyncedDateTime: machine.lastSyncedAt?.toISOString() || '',
+      lastHeartbeatAt: machine.lastHeartbeatAt?.toISOString() || '',
+      lastHeartbeatDateTime: machine.lastHeartbeatAt?.toISOString() || '',
+      lastErrorCode: machine.lastErrorCode || '',
+      lastErrorMessage: machine.lastErrorMessage || '',
+      lastLogCursor: machine.lastLogCursor || '',
+      lastUserSyncCursor: machine.lastUserSyncCursor || '',
       recentEvents,
       createdAt: machine.createdAt.toISOString(),
       updatedAt: machine.updatedAt.toISOString(),
       createdDateTime: machine.createdAt.toISOString(),
       updatedDateTime: machine.updatedAt.toISOString(),
+    };
+  }
+
+  private shouldUseAttendanceConnector(machine: {
+    vendor?: string | null;
+    protocol?: string | null;
+  }) {
+    const vendor = String(machine.vendor || '').toUpperCase();
+    const protocol = String(machine.protocol || '').toUpperCase();
+    return (
+      vendor === 'HIKVISION' ||
+      protocol === 'HIKVISION_ISAPI' ||
+      vendor === 'ZKTECO' ||
+      vendor === 'RONALD_JACK' ||
+      protocol === 'ZK_PULL_TCP'
+    );
+  }
+
+  private parseAttendanceMachineRangeBoundary(
+    value: string,
+    boundary: 'start' | 'end',
+  ) {
+    const normalized = String(value || '').trim();
+    if (!normalized) {
+      throw new BadRequestException(
+        'Can chon day du tu ngay va den ngay cho khoang du lieu may cham cong.',
+      );
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      return new Date(
+        `${normalized}T${
+          boundary === 'start' ? '00:00:00.000' : '23:59:59.999'
+        }+07:00`,
+      );
+    }
+
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(
+        'Khoang ngay may cham cong khong hop le. Vui long chon lai tu ngay / den ngay.',
+      );
+    }
+
+    return parsed;
+  }
+
+  private resolveAttendanceMachineLogRange(
+    dto: AttendanceMachineMaintenanceDto,
+  ): AttendanceDeviceLogRangePayload {
+    if (!dto.dateFrom || !dto.dateTo) {
+      throw new BadRequestException(
+        'Can chon tu ngay va den ngay cho thao tac voi du lieu may cham cong.',
+      );
+    }
+
+    const startAt = this.parseAttendanceMachineRangeBoundary(
+      dto.dateFrom,
+      'start',
+    );
+    const endAt = this.parseAttendanceMachineRangeBoundary(dto.dateTo, 'end');
+
+    if (startAt.getTime() > endAt.getTime()) {
+      throw new BadRequestException('Tu ngay khong duoc lon hon den ngay.');
+    }
+
+    return {
+      dateFrom: dto.dateFrom,
+      dateTo: dto.dateTo,
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+    };
+  }
+
+  private mapAttendanceMachineDeviceLogRecord(log: {
+    machineUserId?: string;
+    appAttendanceCode?: string;
+    rawCode?: string;
+    eventAt: string;
+    eventType: 'CHECK_IN' | 'CHECK_OUT';
+    verificationMethod: 'FINGERPRINT' | 'FACE' | 'CARD' | 'MOBILE' | 'MANUAL';
+    externalEventId?: string;
+    payload?: Record<string, unknown>;
+  }) {
+    const machineCode =
+      this.normalizeAttendanceCode(
+        log.machineUserId || log.appAttendanceCode || log.rawCode,
+      ) || '';
+
+    return {
+      recordType: 'EVENT',
+      entityId: log.externalEventId || `${machineCode}-${log.eventAt}`,
+      entityCode: machineCode,
+      displayName: machineCode || 'Machine log',
+      attendanceCode: machineCode || '',
+      identifier: log.rawCode || machineCode,
+      status: log.eventType,
+      note: log.externalEventId || '',
+      eventAt: log.eventAt,
+      eventType: log.eventType,
+      verificationMethod: log.verificationMethod,
+      source: 'DEVICE_EXPORT',
+      machineUserId: log.machineUserId || '',
+      rawCode: log.rawCode || '',
+      payload: log.payload || {},
     };
   }
 
@@ -546,6 +1026,440 @@ export class SystemService {
       missingCodeCount: Math.max(customers.length - records.length, 0),
       allRecords,
       records,
+    };
+  }
+
+  private async resolveAttendanceEnrollmentPerson(
+    branchId: string,
+    dto: AttendanceMachineMaintenanceDto,
+  ) {
+    if (!dto.personType || !dto.personId) {
+      throw new BadRequestException(
+        'Can chon doi tuong can enroll khuon mat / the.',
+      );
+    }
+
+    if (dto.personType === 'STAFF') {
+      const user = await this.prisma.user.findFirst({
+        where: {
+          id: dto.personId,
+          branchId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          fullName: true,
+          username: true,
+          employeeCode: true,
+          attendanceCode: true,
+        },
+      });
+
+      if (!user) {
+        throw new NotFoundException('Nhan vien khong ton tai trong chi nhanh nay');
+      }
+
+      const attendanceCode = this.resolveStaffAttendanceCode(
+        user,
+        user.username,
+      );
+
+      return {
+        personType: 'STAFF' as const,
+        personId: user.id,
+        displayName: dto.displayName || user.fullName || user.username || '',
+        appAttendanceCode:
+          dto.appAttendanceCode ||
+          attendanceCode ||
+          this.resolveEmployeeCode(user, user.username) ||
+          undefined,
+        machineUserId:
+          dto.machineUserId ||
+          dto.machineCode ||
+          attendanceCode ||
+          this.resolveEmployeeCode(user, user.username) ||
+          user.id,
+        machineCode:
+          dto.machineCode ||
+          attendanceCode ||
+          this.resolveEmployeeCode(user, user.username) ||
+          user.id,
+        cardCode: dto.cardCode,
+        faceImageUrl: dto.faceImageUrl,
+        faceImageBase64: dto.faceImageBase64,
+      };
+    }
+
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        id: dto.personId,
+        branchId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        code: true,
+        fingerprintCode: true,
+        customerCardNumber: true,
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Hoi vien khong ton tai trong chi nhanh nay');
+    }
+
+    const attendanceCode =
+      this.normalizeAttendanceCode(customer.fingerprintCode) ||
+      this.normalizeAttendanceCode(customer.code);
+
+    return {
+      personType: 'CUSTOMER' as const,
+      personId: customer.id,
+      displayName: dto.displayName || customer.fullName || customer.code || '',
+      appAttendanceCode:
+        dto.appAttendanceCode || attendanceCode || customer.id,
+      machineUserId:
+        dto.machineUserId ||
+        dto.machineCode ||
+        attendanceCode ||
+        customer.id,
+      machineCode:
+        dto.machineCode ||
+        attendanceCode ||
+        customer.id,
+      cardCode: dto.cardCode || customer.customerCardNumber || undefined,
+      faceImageUrl: dto.faceImageUrl,
+      faceImageBase64: dto.faceImageBase64,
+    };
+  }
+
+  private async saveAttendanceEnrollmentArtifacts(args: {
+    machine: {
+      id: string;
+      branchId: string;
+      code: string;
+    };
+    enrollmentType: 'FACE' | 'CARD';
+    personType: 'STAFF' | 'CUSTOMER';
+    personId: string;
+    displayName?: string;
+    appAttendanceCode?: string;
+    machineUserId?: string;
+    machineCode?: string;
+    cardCode?: string;
+    faceImageUrl?: string;
+    faceImageBase64?: string;
+    connectorResult?: Record<string, unknown>;
+  }) {
+    const personMap = await this.saveAttendanceMachinePersonMap({
+      machine: args.machine,
+      personType: args.personType,
+      personId: args.personId,
+      appAttendanceCode: args.appAttendanceCode,
+      machineUserId: args.machineUserId,
+      machineCode: args.machineCode,
+      cardCode: args.cardCode,
+      faceProfileId:
+        args.enrollmentType === 'FACE'
+          ? args.machineUserId || args.machineCode || args.personId
+          : undefined,
+    });
+
+    const enrollment = await this.prisma.attendanceEnrollment.create({
+      data: {
+        branchId: args.machine.branchId,
+        attendanceMachineId: args.machine.id,
+        personMapId: personMap.id,
+        personType: args.personType,
+        personId: args.personId,
+        enrollmentType: args.enrollmentType,
+        status: 'UPLOADED_TO_MACHINE',
+        capturedAt: new Date(),
+        confirmedAt: new Date(),
+        machineUserId: args.machineUserId,
+        note: args.displayName || null,
+        metadataJson: args.connectorResult as Prisma.InputJsonValue | undefined,
+      },
+    });
+
+    if (args.enrollmentType === 'CARD' && args.cardCode) {
+      await this.prisma.attendanceBiometricAsset.create({
+        data: {
+          branchId: args.machine.branchId,
+          attendanceMachineId: args.machine.id,
+          enrollmentId: enrollment.id,
+          personType: args.personType,
+          personId: args.personId,
+          assetType: 'CARD_METADATA',
+          storageProvider: 'LOCAL',
+          source: 'UPLOAD',
+          storageKey: args.cardCode,
+          originalFilename: null,
+          mimeType: 'text/plain',
+          fileSize: args.cardCode.length,
+        },
+      });
+    }
+
+    if (
+      args.enrollmentType === 'FACE' &&
+      (args.faceImageUrl || args.faceImageBase64)
+    ) {
+      const storageKey =
+        args.faceImageUrl ||
+        `inline-face:${args.machine.code}:${args.personId}:${Date.now()}`;
+      await this.prisma.attendanceBiometricAsset.create({
+        data: {
+          branchId: args.machine.branchId,
+          attendanceMachineId: args.machine.id,
+          enrollmentId: enrollment.id,
+          personType: args.personType,
+          personId: args.personId,
+          assetType: 'FACE_IMAGE',
+          storageProvider: 'LOCAL',
+          source: 'UPLOAD',
+          storageKey,
+          originalFilename: args.displayName
+            ? `${args.displayName}-face`
+            : 'face-image',
+          mimeType: 'image/jpeg',
+          fileSize: args.faceImageBase64
+            ? Math.round(args.faceImageBase64.length * 0.75)
+            : undefined,
+        },
+      });
+    }
+
+    return {
+      personMap,
+      enrollment,
+    };
+  }
+
+  private async saveAttendanceMachinePersonMap(args: {
+    machine: {
+      id: string;
+      branchId: string;
+    };
+    personType: 'STAFF' | 'CUSTOMER';
+    personId: string;
+    appAttendanceCode?: string;
+    machineUserId?: string;
+    machineCode?: string;
+    cardCode?: string;
+    faceProfileId?: string;
+  }) {
+    const normalizedAppAttendanceCode = this.normalizeAttendanceCode(
+      args.appAttendanceCode,
+    );
+    const normalizedMachineUserId = this.normalizeAttendanceCode(
+      args.machineUserId,
+    );
+    const normalizedMachineCode = this.normalizeAttendanceCode(
+      args.machineCode,
+    );
+
+    const duplicateKeyMatchers: Prisma.AttendanceMachinePersonMapWhereInput[] =
+      [];
+
+    if (normalizedAppAttendanceCode) {
+      duplicateKeyMatchers.push({
+        appAttendanceCode: {
+          equals: normalizedAppAttendanceCode,
+          mode: 'insensitive',
+        },
+      });
+    }
+
+    if (normalizedMachineUserId) {
+      duplicateKeyMatchers.push({
+        machineUserId: {
+          equals: normalizedMachineUserId,
+          mode: 'insensitive',
+        },
+      });
+    }
+
+    if (normalizedMachineCode) {
+      duplicateKeyMatchers.push({
+        machineCode: {
+          equals: normalizedMachineCode,
+          mode: 'insensitive',
+        },
+      });
+    }
+
+    if (duplicateKeyMatchers.length > 0) {
+      await this.prisma.attendanceMachinePersonMap.deleteMany({
+        where: {
+          attendanceMachineId: args.machine.id,
+          personType: args.personType,
+          NOT: {
+            personId: args.personId,
+          },
+          OR: duplicateKeyMatchers,
+        },
+      });
+    }
+
+    return this.prisma.attendanceMachinePersonMap.upsert({
+      where: {
+        attendanceMachineId_personType_personId: {
+          attendanceMachineId: args.machine.id,
+          personType: args.personType,
+          personId: args.personId,
+        },
+      },
+      create: {
+        branchId: args.machine.branchId,
+        attendanceMachineId: args.machine.id,
+        personType: args.personType,
+        personId: args.personId,
+        appAttendanceCode: normalizedAppAttendanceCode,
+        machineUserId: normalizedMachineUserId,
+        machineCode: normalizedMachineCode,
+        cardCode: args.cardCode,
+        faceProfileId: args.faceProfileId,
+        syncStatus: 'SYNCED',
+        lastSyncedAt: new Date(),
+        lastError: null,
+      },
+      update: {
+        appAttendanceCode: normalizedAppAttendanceCode,
+        machineUserId: normalizedMachineUserId,
+        machineCode: normalizedMachineCode,
+        cardCode: args.cardCode,
+        faceProfileId: args.faceProfileId,
+        syncStatus: 'SYNCED',
+        lastSyncedAt: new Date(),
+        lastError: null,
+      },
+    });
+  }
+
+  private async importAttendanceMachineLogs(args: {
+    machine: {
+      id: string;
+      branchId: string;
+    };
+    logs: Array<{
+      rawCode?: string;
+      appAttendanceCode?: string;
+      machineUserId?: string;
+      eventAt: string;
+      eventType: 'CHECK_IN' | 'CHECK_OUT';
+      verificationMethod: 'FINGERPRINT' | 'FACE' | 'CARD' | 'MOBILE' | 'MANUAL';
+      externalEventId?: string;
+      payload?: Record<string, unknown>;
+    }>;
+  }) {
+    let importedCount = 0;
+    let duplicateCount = 0;
+    let unmatchedCount = 0;
+
+    for (const log of args.logs) {
+      const attendanceCode = this.normalizeAttendanceCode(
+        log.appAttendanceCode || log.rawCode || log.machineUserId,
+      );
+
+      if (!attendanceCode) {
+        unmatchedCount += 1;
+        continue;
+      }
+
+      const personMap = await this.prisma.attendanceMachinePersonMap.findFirst({
+        where: {
+          attendanceMachineId: args.machine.id,
+          personType: 'STAFF',
+          OR: [
+            { machineUserId: { equals: attendanceCode, mode: 'insensitive' } },
+            { machineCode: { equals: attendanceCode, mode: 'insensitive' } },
+            { appAttendanceCode: { equals: attendanceCode, mode: 'insensitive' } },
+          ],
+        },
+        orderBy: [
+          { lastSyncedAt: 'desc' },
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        select: {
+          personId: true,
+        },
+      });
+
+      const user = personMap?.personId
+        ? await this.prisma.user.findFirst({
+            where: {
+              id: personMap.personId,
+              branchId: args.machine.branchId,
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+            },
+          })
+        : await this.prisma.user.findFirst({
+            where: {
+              branchId: args.machine.branchId,
+              deletedAt: null,
+              OR: [
+                {
+                  attendanceCode: { equals: attendanceCode, mode: 'insensitive' },
+                },
+                { employeeCode: { equals: attendanceCode, mode: 'insensitive' } },
+                { username: { equals: attendanceCode, mode: 'insensitive' } },
+              ],
+            },
+            select: {
+              id: true,
+            },
+          });
+
+      if (!user) {
+        unmatchedCount += 1;
+        continue;
+      }
+
+      const eventAt = new Date(log.eventAt);
+      const existing = await this.prisma.staffAttendanceEvent.findFirst({
+        where: {
+          branchId: args.machine.branchId,
+          userId: user.id,
+          attendanceMachineId: args.machine.id,
+          eventAt,
+          eventType: log.eventType,
+          rawCode: attendanceCode,
+        },
+        select: { id: true },
+      });
+
+      if (existing) {
+        duplicateCount += 1;
+        continue;
+      }
+
+      await this.prisma.staffAttendanceEvent.create({
+        data: {
+          branchId: args.machine.branchId,
+          userId: user.id,
+          attendanceMachineId: args.machine.id,
+          eventAt,
+          eventType: log.eventType,
+          verificationMethod: log.verificationMethod,
+          source: 'MACHINE',
+          rawCode: attendanceCode,
+          note: log.externalEventId || undefined,
+        },
+      });
+
+      importedCount += 1;
+    }
+
+    return {
+      importedCount,
+      duplicateCount,
+      unmatchedCount,
     };
   }
 
@@ -1689,8 +2603,38 @@ export class SystemService {
     dto: CreateAttendanceMachineDto,
     user: AuthUser,
   ) {
+    const createData: Prisma.AttendanceMachineUncheckedCreateInput = {
+      branchId: dto.branchId,
+      code: dto.code,
+      name: dto.name,
+      ...(dto.vendor
+        ? { vendor: dto.vendor as AttendanceMachineVendor }
+        : {}),
+      ...(dto.machineType
+        ? { machineType: dto.machineType as AttendanceMachineType }
+        : {}),
+      ...(dto.protocol
+        ? { protocol: dto.protocol as AttendanceMachineProtocol }
+        : {}),
+      model: dto.model,
+      deviceIdentifier: dto.deviceIdentifier,
+      commKey: dto.commKey,
+      connectionPort: dto.connectionPort,
+      host: dto.host,
+      username: dto.username,
+      password: dto.password,
+      pollingIntervalSeconds: dto.pollingIntervalSeconds,
+      supportsFaceImage: dto.supportsFaceImage,
+      supportsFaceTemplate: dto.supportsFaceTemplate,
+      supportsCardEnrollment: dto.supportsCardEnrollment,
+      supportsFingerprintTemplate: dto.supportsFingerprintTemplate,
+      supportsWebhook: dto.supportsWebhook,
+      syncEnabled: dto.syncEnabled,
+      connectionStatus: dto.connectionStatus,
+      timeZone: dto.timeZone,
+    };
     const payload = await this.prisma.attendanceMachine.create({
-      data: dto,
+      data: createData,
       include: {
         branch: true,
         _count: {
@@ -1721,9 +2665,57 @@ export class SystemService {
       where: { id },
     });
     if (!before) throw new NotFoundException('Attendance machine not found');
+    const updateData: Prisma.AttendanceMachineUncheckedUpdateInput = {
+      ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
+      ...(dto.code !== undefined ? { code: dto.code } : {}),
+      ...(dto.name !== undefined ? { name: dto.name } : {}),
+      ...(dto.vendor !== undefined
+        ? { vendor: dto.vendor as AttendanceMachineVendor }
+        : {}),
+      ...(dto.machineType !== undefined
+        ? { machineType: dto.machineType as AttendanceMachineType }
+        : {}),
+      ...(dto.protocol !== undefined
+        ? { protocol: dto.protocol as AttendanceMachineProtocol }
+        : {}),
+      ...(dto.model !== undefined ? { model: dto.model } : {}),
+      ...(dto.deviceIdentifier !== undefined
+        ? { deviceIdentifier: dto.deviceIdentifier }
+        : {}),
+      ...(dto.commKey !== undefined ? { commKey: dto.commKey } : {}),
+      ...(dto.connectionPort !== undefined
+        ? { connectionPort: dto.connectionPort }
+        : {}),
+      ...(dto.host !== undefined ? { host: dto.host } : {}),
+      ...(dto.username !== undefined ? { username: dto.username } : {}),
+      ...(dto.password !== undefined ? { password: dto.password } : {}),
+      ...(dto.pollingIntervalSeconds !== undefined
+        ? { pollingIntervalSeconds: dto.pollingIntervalSeconds }
+        : {}),
+      ...(dto.supportsFaceImage !== undefined
+        ? { supportsFaceImage: dto.supportsFaceImage }
+        : {}),
+      ...(dto.supportsFaceTemplate !== undefined
+        ? { supportsFaceTemplate: dto.supportsFaceTemplate }
+        : {}),
+      ...(dto.supportsCardEnrollment !== undefined
+        ? { supportsCardEnrollment: dto.supportsCardEnrollment }
+        : {}),
+      ...(dto.supportsFingerprintTemplate !== undefined
+        ? { supportsFingerprintTemplate: dto.supportsFingerprintTemplate }
+        : {}),
+      ...(dto.supportsWebhook !== undefined
+        ? { supportsWebhook: dto.supportsWebhook }
+        : {}),
+      ...(dto.syncEnabled !== undefined ? { syncEnabled: dto.syncEnabled } : {}),
+      ...(dto.connectionStatus !== undefined
+        ? { connectionStatus: dto.connectionStatus }
+        : {}),
+      ...(dto.timeZone !== undefined ? { timeZone: dto.timeZone } : {}),
+    };
     const payload = await this.prisma.attendanceMachine.update({
       where: { id },
-      data: dto,
+      data: updateData,
       include: {
         branch: true,
         _count: {
@@ -1784,6 +2776,49 @@ export class SystemService {
       case 'MARK_ERROR':
         data.connectionStatus = 'ERROR';
         break;
+      case 'PING_MACHINE': {
+        const connectorPingResult =
+          await this.attendanceDevicesService.pingMachine(id);
+        if (connectorPingResult.result.supported) {
+          data.connectionStatus = 'CONNECTED';
+          data.lastHeartbeatAt = operationAt;
+          data.lastErrorCode = null;
+          data.lastErrorMessage = null;
+        }
+        operationResult = {
+          action: dto.action,
+          title: 'Kiem tra ket noi may cham cong',
+          description:
+            'Doc nhanh thong tin may va xac nhan kha nang giao tiep cua connector hien tai.',
+          machineCode: before.code,
+          machineName: before.name,
+          branchName,
+          syncedAt: operationAt.toISOString(),
+          totalRecords: connectorPingResult.result.supported ? 1 : 0,
+          connector: connectorPingResult.connector,
+          connectorResult: connectorPingResult.result,
+          preview: connectorPingResult.result.supported
+            ? [
+                {
+                  recordType: 'MACHINE',
+                  entityId: before.id,
+                  entityCode: before.code,
+                  displayName: before.name,
+                  attendanceCode: before.host || '-',
+                  status: 'CONNECTED',
+                  note: connectorPingResult.result.message,
+                },
+              ]
+            : [],
+        };
+        operationAuditResult = {
+          title: 'Kiem tra ket noi may cham cong',
+          connectorKey: connectorPingResult.connector.key,
+          connectorSupported: connectorPingResult.result.supported,
+          syncedAt: operationAt.toISOString(),
+        };
+        break;
+      }
       case 'START_SYNC':
         data.connectionStatus = 'SYNCING';
         data.syncEnabled = true;
@@ -1798,9 +2833,39 @@ export class SystemService {
           id,
           before.branchId,
         );
+        const connectorLogPull = this.shouldUseAttendanceConnector(before)
+          ? await this.attendanceDevicesService.pullAttendanceLogs(id)
+          : undefined;
+        const importedSummary = connectorLogPull
+          ? await this.importAttendanceMachineLogs({
+              machine: {
+                id: before.id,
+                branchId: before.branchId,
+              },
+              logs: connectorLogPull.logs,
+            })
+          : undefined;
+        const latestDeviceEventAt = connectorLogPull?.logs.reduce<string | null>(
+          (latest, item) => {
+            if (!latest) {
+              return item.eventAt;
+            }
+            return new Date(item.eventAt).getTime() >
+              new Date(latest).getTime()
+              ? item.eventAt
+              : latest;
+          },
+          null,
+        );
+        const refreshedRecords = await this.listAttendanceMachineRecentEventRecords(
+          id,
+          before.branchId,
+        );
         data.connectionStatus = 'CONNECTED';
         data.syncEnabled = true;
         data.lastSyncedAt = operationAt;
+        data.lastHeartbeatAt = connectorLogPull ? operationAt : undefined;
+        data.lastLogCursor = latestDeviceEventAt || before.lastLogCursor;
         operationResult = {
           action: dto.action,
           title: 'Tai du lieu cham cong ve he thong',
@@ -1810,13 +2875,23 @@ export class SystemService {
           machineName: before.name,
           branchName,
           exportedAt: operationAt.toISOString(),
-          totalRecords: records.length,
-          preview: records.slice(0, 8),
-          records,
+          totalRecords: refreshedRecords.length,
+          connector: connectorLogPull?.connector,
+          pulledFromDeviceCount: connectorLogPull?.logs.length || 0,
+          importedCount: importedSummary?.importedCount || 0,
+          duplicateCount: importedSummary?.duplicateCount || 0,
+          unmatchedCount: importedSummary?.unmatchedCount || 0,
+          devicePreview: connectorLogPull?.logs.slice(0, 8) || [],
+          preview: refreshedRecords.slice(0, 8),
+          records: refreshedRecords,
         };
         operationAuditResult = {
           title: 'Tai du lieu cham cong ve he thong',
-          totalRecords: records.length,
+          totalRecords: refreshedRecords.length,
+          pulledFromDeviceCount: connectorLogPull?.logs.length || 0,
+          importedCount: importedSummary?.importedCount || 0,
+          duplicateCount: importedSummary?.duplicateCount || 0,
+          unmatchedCount: importedSummary?.unmatchedCount || 0,
           exportedAt: operationAt.toISOString(),
         };
         break;
@@ -1832,7 +2907,12 @@ export class SystemService {
             branchName,
           ),
         ]);
+        const connectorUserPull = this.shouldUseAttendanceConnector(before)
+          ? await this.attendanceDevicesService.pullMachineUsers(id)
+          : undefined;
         const records = [...staffSync.allRecords, ...customerSync.allRecords];
+        data.lastHeartbeatAt = connectorUserPull ? operationAt : undefined;
+        data.lastUserSyncCursor = operationAt.toISOString();
         operationResult = {
           action: dto.action,
           title: 'Tai ma cham cong ve may tinh',
@@ -1844,16 +2924,20 @@ export class SystemService {
           exportedAt: operationAt.toISOString(),
           fileName: `attendance-machine-${before.code}-${this.attendanceDateKey(operationAt)}-codes.json`,
           totalRecords: records.length,
+          deviceUserCount: connectorUserPull?.users.length || 0,
           staffCount: staffSync.records.length,
           customerCount: customerSync.records.length,
           missingCodeCount:
             staffSync.missingCodeCount + customerSync.missingCodeCount,
+          connector: connectorUserPull?.connector,
+          machineUsersPreview: connectorUserPull?.users.slice(0, 8) || [],
           preview: records.slice(0, 8),
           records,
         };
         operationAuditResult = {
           title: 'Tai ma cham cong ve may tinh',
           totalRecords: records.length,
+          deviceUserCount: connectorUserPull?.users.length || 0,
           staffCount: staffSync.records.length,
           customerCount: customerSync.records.length,
           missingCodeCount:
@@ -1867,9 +2951,29 @@ export class SystemService {
           before.branchId,
           branchName,
         );
+        const connectorPushResult = this.shouldUseAttendanceConnector(before)
+          ? await this.attendanceDevicesService.pushUsers(
+              id,
+              staffSync.records.map((record) => ({
+                personType: 'STAFF' as const,
+                personId: record.entityId,
+                displayName: record.displayName,
+                appAttendanceCode: record.attendanceCode,
+                machineUserId: record.attendanceCode || record.entityCode,
+                machineCode: record.attendanceCode || record.entityCode,
+                metadata: {
+                  branchName: record.branchName,
+                  status: record.status,
+                  identifier: record.identifier,
+                },
+              })),
+            )
+          : undefined;
         data.connectionStatus = 'CONNECTED';
         data.syncEnabled = true;
         data.lastSyncedAt = operationAt;
+        data.lastHeartbeatAt = connectorPushResult ? operationAt : undefined;
+        data.lastUserSyncCursor = operationAt.toISOString();
         operationResult = {
           action: dto.action,
           title: 'Tai nhan vien len may',
@@ -1882,6 +2986,8 @@ export class SystemService {
           totalRecords: staffSync.records.length,
           totalBranchRecords: staffSync.totalBranchRecords,
           missingCodeCount: staffSync.missingCodeCount,
+          connector: connectorPushResult?.connector,
+          connectorResult: connectorPushResult?.result,
           preview: staffSync.records.slice(0, 8),
           records: staffSync.records,
         };
@@ -1890,6 +2996,8 @@ export class SystemService {
           totalRecords: staffSync.records.length,
           totalBranchRecords: staffSync.totalBranchRecords,
           missingCodeCount: staffSync.missingCodeCount,
+          connectorKey: connectorPushResult?.connector.key,
+          connectorSupported: connectorPushResult?.result.supported,
           syncedAt: operationAt.toISOString(),
         };
         break;
@@ -1900,9 +3008,30 @@ export class SystemService {
             before.branchId,
             branchName,
           );
+        const connectorPushResult = this.shouldUseAttendanceConnector(before)
+          ? await this.attendanceDevicesService.pushUsers(
+              id,
+              customerSync.records.map((record) => ({
+                personType: 'CUSTOMER' as const,
+                personId: record.entityId,
+                displayName: record.displayName,
+                appAttendanceCode: record.attendanceCode,
+                machineUserId: record.attendanceCode || record.entityCode,
+                machineCode: record.attendanceCode || record.entityCode,
+                cardCode: record.note || undefined,
+                metadata: {
+                  branchName: record.branchName,
+                  status: record.status,
+                  identifier: record.identifier,
+                },
+              })),
+            )
+          : undefined;
         data.connectionStatus = 'CONNECTED';
         data.syncEnabled = true;
         data.lastSyncedAt = operationAt;
+        data.lastHeartbeatAt = connectorPushResult ? operationAt : undefined;
+        data.lastUserSyncCursor = operationAt.toISOString();
         operationResult = {
           action: dto.action,
           title: 'Tai hoi vien len may',
@@ -1915,6 +3044,8 @@ export class SystemService {
           totalRecords: customerSync.records.length,
           totalBranchRecords: customerSync.totalBranchRecords,
           missingCodeCount: customerSync.missingCodeCount,
+          connector: connectorPushResult?.connector,
+          connectorResult: connectorPushResult?.result,
           preview: customerSync.records.slice(0, 8),
           records: customerSync.records,
         };
@@ -1923,14 +3054,20 @@ export class SystemService {
           totalRecords: customerSync.records.length,
           totalBranchRecords: customerSync.totalBranchRecords,
           missingCodeCount: customerSync.missingCodeCount,
+          connectorKey: connectorPushResult?.connector.key,
+          connectorSupported: connectorPushResult?.result.supported,
           syncedAt: operationAt.toISOString(),
         };
         break;
       }
-      case 'SYNC_MACHINE_TIME':
+      case 'SYNC_MACHINE_TIME': {
+        const connectorSyncResult = this.shouldUseAttendanceConnector(before)
+          ? await this.attendanceDevicesService.syncMachineTime(id)
+          : undefined;
         data.connectionStatus = 'CONNECTED';
         data.syncEnabled = true;
         data.lastSyncedAt = operationAt;
+        data.lastHeartbeatAt = connectorSyncResult ? operationAt : undefined;
         operationResult = {
           action: dto.action,
           title: 'Dong bo gio may cham cong',
@@ -1939,16 +3076,483 @@ export class SystemService {
           machineCode: before.code,
           machineName: before.name,
           branchName,
+          connector: connectorSyncResult?.connector,
+          connectorResult: connectorSyncResult?.result,
           syncedAt: operationAt.toISOString(),
           machineTime: operationAt.toISOString(),
-          timeZone: 'Asia/Bangkok',
+          timeZone: before.timeZone || 'Asia/Bangkok',
         };
         operationAuditResult = {
           title: 'Dong bo gio may cham cong',
+          connectorKey: connectorSyncResult?.connector.key,
+          connectorSupported: connectorSyncResult?.result.supported,
           syncedAt: operationAt.toISOString(),
-          timeZone: 'Asia/Bangkok',
+          timeZone: before.timeZone || 'Asia/Bangkok',
         };
         break;
+      }
+      case 'EXPORT_MACHINE_LOG_RANGE': {
+        const logRange = this.resolveAttendanceMachineLogRange(dto);
+        const connectorLogExport =
+          await this.attendanceDevicesService.pullAttendanceLogsByRange(
+            id,
+            logRange,
+          );
+        const exportedRecords = connectorLogExport.logs.map((item) =>
+          this.mapAttendanceMachineDeviceLogRecord(item),
+        );
+        const liveConnector = connectorLogExport.connector.key !== 'generic-export';
+
+        if (liveConnector) {
+          data.connectionStatus = 'CONNECTED';
+          data.lastHeartbeatAt = operationAt;
+          data.lastErrorCode = null;
+          data.lastErrorMessage = null;
+        }
+
+        operationResult = {
+          action: dto.action,
+          title: 'Tai du lieu tren may theo moc thoi gian',
+          description:
+            'Doc log raw tren may trong khoang ngay da chon va tai ve may tinh. Thao tac nay khong import du lieu vao he thong.',
+          machineCode: before.code,
+          machineName: before.name,
+          branchName,
+          exportedAt: operationAt.toISOString(),
+          fileName: `attendance-machine-${before.code}-${logRange.dateFrom}-to-${logRange.dateTo}-device-logs.json`,
+          totalRecords: exportedRecords.length,
+          pulledFromDeviceCount: connectorLogExport.logs.length,
+          connector: connectorLogExport.connector,
+          rangeFrom: logRange.dateFrom,
+          rangeTo: logRange.dateTo,
+          devicePreview: connectorLogExport.logs.slice(0, 8),
+          preview: exportedRecords.slice(0, 8),
+          records: exportedRecords,
+        };
+        operationAuditResult = {
+          title: 'Tai du lieu tren may theo moc thoi gian',
+          totalRecords: exportedRecords.length,
+          pulledFromDeviceCount: connectorLogExport.logs.length,
+          dateFrom: logRange.dateFrom,
+          dateTo: logRange.dateTo,
+          exportedAt: operationAt.toISOString(),
+        };
+        break;
+      }
+      case 'EXPORT_ALL_MACHINE_LOGS': {
+        const connectorLogExport =
+          await this.attendanceDevicesService.pullAllAttendanceLogs(id);
+        const exportedRecords = connectorLogExport.logs.map((item) =>
+          this.mapAttendanceMachineDeviceLogRecord(item),
+        );
+        const liveConnector = connectorLogExport.connector.key !== 'generic-export';
+
+        if (liveConnector) {
+          data.connectionStatus = 'CONNECTED';
+          data.lastHeartbeatAt = operationAt;
+          data.lastErrorCode = null;
+          data.lastErrorMessage = null;
+        }
+
+        operationResult = {
+          action: dto.action,
+          title: 'Tai toan bo log tren may',
+          description:
+            'Doc toan bo log raw dang con tren may va tai ve may tinh. Thao tac nay khong import du lieu vao he thong.',
+          machineCode: before.code,
+          machineName: before.name,
+          branchName,
+          exportedAt: operationAt.toISOString(),
+          fileName: `attendance-machine-${before.code}-${this.attendanceDateKey(operationAt)}-all-device-logs.json`,
+          totalRecords: exportedRecords.length,
+          pulledFromDeviceCount: connectorLogExport.logs.length,
+          totalMachineLogCount: connectorLogExport.logs.length,
+          connector: connectorLogExport.connector,
+          devicePreview: connectorLogExport.logs.slice(0, 8),
+          preview: exportedRecords.slice(0, 8),
+          records: exportedRecords,
+        };
+        operationAuditResult = {
+          title: 'Tai toan bo log tren may',
+          totalRecords: exportedRecords.length,
+          pulledFromDeviceCount: connectorLogExport.logs.length,
+          exportedAt: operationAt.toISOString(),
+        };
+        break;
+      }
+      case 'DELETE_MACHINE_LOG_RANGE': {
+        const logRange = this.resolveAttendanceMachineLogRange(dto);
+        const connectorDeleteResult =
+          await this.attendanceDevicesService.deleteAttendanceLogsByRange(
+            id,
+            logRange,
+          );
+        const connectorMetadata =
+          (connectorDeleteResult.result.metadata as
+            | Record<string, unknown>
+            | undefined) || {};
+        const liveConnector =
+          connectorDeleteResult.connector.key !== 'generic-export';
+        const selectedLogCount = Number(connectorMetadata.matchedLogs || 0);
+        const deletedCount = Number(connectorMetadata.deletedLogs || 0);
+        const totalLogsOnDevice = Number(
+          connectorMetadata.totalLogsOnDevice || 0,
+        );
+        const outsideRangeCount = Number(
+          connectorMetadata.outsideRangeCount || 0,
+        );
+        const rangeCoveredAllLogs = Boolean(
+          connectorMetadata.rangeCoveredAllLogs,
+        );
+        const deleteStrategy = String(connectorMetadata.deleteStrategy || '');
+        const deleteStrategyLabel =
+          deleteStrategy === 'CLEAR_ALL_ONLY'
+            ? 'Xoa toan bo log tren may'
+            : deleteStrategy || '';
+        const previewLogs = Array.isArray(connectorMetadata.previewLogs)
+          ? connectorMetadata.previewLogs
+              .filter(
+                (
+                  item,
+                ): item is {
+                  machineUserId?: string;
+                  appAttendanceCode?: string;
+                  rawCode?: string;
+                  eventAt: string;
+                  eventType: 'CHECK_IN' | 'CHECK_OUT';
+                  verificationMethod:
+                    | 'FINGERPRINT'
+                    | 'FACE'
+                    | 'CARD'
+                    | 'MOBILE'
+                    | 'MANUAL';
+                  externalEventId?: string;
+                  payload?: Record<string, unknown>;
+                } =>
+                  Boolean(
+                    item &&
+                      typeof item === 'object' &&
+                      'eventAt' in item &&
+                      'eventType' in item &&
+                      'verificationMethod' in item,
+                  ),
+              )
+              .map((item) => this.mapAttendanceMachineDeviceLogRecord(item))
+          : [];
+
+        if (liveConnector) {
+          data.connectionStatus = 'CONNECTED';
+          data.lastHeartbeatAt = operationAt;
+          if (connectorDeleteResult.result.supported) {
+            data.lastErrorCode = null;
+            data.lastErrorMessage = null;
+          }
+        }
+
+        operationResult = {
+          action: dto.action,
+          title: 'Xoa du lieu tren may theo moc thoi gian',
+          description: connectorDeleteResult.result.message,
+          machineCode: before.code,
+          machineName: before.name,
+          branchName,
+          exportedAt: operationAt.toISOString(),
+          totalRecords: selectedLogCount,
+          deletedCount,
+          connector: connectorDeleteResult.connector,
+          connectorResult: connectorDeleteResult.result,
+          rangeFrom: logRange.dateFrom,
+          rangeTo: logRange.dateTo,
+          totalMachineLogCount: totalLogsOnDevice,
+          remainingLogCount:
+            connectorMetadata.remainingLogCount === null ||
+            connectorMetadata.remainingLogCount === undefined
+              ? undefined
+              : Number(connectorMetadata.remainingLogCount),
+          rangeCoveredAllLogs,
+          deleteStrategy: deleteStrategyLabel,
+          devicePreview: Array.isArray(connectorMetadata.previewLogs)
+            ? connectorMetadata.previewLogs.slice(0, 8)
+            : [],
+          preview: previewLogs,
+          records: previewLogs,
+        };
+        operationAuditResult = {
+          title: 'Xoa du lieu tren may theo moc thoi gian',
+          totalRecords: selectedLogCount,
+          deletedCount,
+          totalMachineLogCount: totalLogsOnDevice,
+          outsideRangeCount,
+          rangeCoveredAllLogs,
+          connectorKey: connectorDeleteResult.connector.key,
+          connectorSupported: connectorDeleteResult.result.supported,
+          deleteStrategy,
+          dateFrom: logRange.dateFrom,
+          dateTo: logRange.dateTo,
+          exportedAt: operationAt.toISOString(),
+        };
+        break;
+      }
+      case 'DELETE_ALL_MACHINE_LOGS': {
+        const connectorDeleteResult =
+          await this.attendanceDevicesService.deleteAllAttendanceLogs(id);
+        const connectorMetadata =
+          (connectorDeleteResult.result.metadata as
+            | Record<string, unknown>
+            | undefined) || {};
+        const liveConnector =
+          connectorDeleteResult.connector.key !== 'generic-export';
+        const selectedLogCount = Number(
+          connectorMetadata.matchedLogs ||
+            connectorMetadata.totalLogsOnDevice ||
+            0,
+        );
+        const deletedCount = Number(connectorMetadata.deletedLogs || 0);
+        const totalLogsOnDevice = Number(
+          connectorMetadata.totalLogsOnDevice || 0,
+        );
+        const deleteStrategy = String(connectorMetadata.deleteStrategy || '');
+        const deleteStrategyLabel =
+          deleteStrategy === 'CLEAR_ALL_ONLY' ||
+          deleteStrategy === 'CLEAR_ALL_EXPLICIT'
+            ? 'Xoa toan bo log tren may'
+            : deleteStrategy || '';
+        const previewLogs = Array.isArray(connectorMetadata.previewLogs)
+          ? connectorMetadata.previewLogs
+              .filter(
+                (
+                  item,
+                ): item is {
+                  machineUserId?: string;
+                  appAttendanceCode?: string;
+                  rawCode?: string;
+                  eventAt: string;
+                  eventType: 'CHECK_IN' | 'CHECK_OUT';
+                  verificationMethod:
+                    | 'FINGERPRINT'
+                    | 'FACE'
+                    | 'CARD'
+                    | 'MOBILE'
+                    | 'MANUAL';
+                  externalEventId?: string;
+                  payload?: Record<string, unknown>;
+                } =>
+                  Boolean(
+                    item &&
+                      typeof item === 'object' &&
+                      'eventAt' in item &&
+                      'eventType' in item &&
+                      'verificationMethod' in item,
+                  ),
+              )
+              .map((item) => this.mapAttendanceMachineDeviceLogRecord(item))
+          : [];
+
+        if (liveConnector) {
+          data.connectionStatus = 'CONNECTED';
+          data.lastHeartbeatAt = operationAt;
+          if (connectorDeleteResult.result.supported) {
+            data.lastErrorCode = null;
+            data.lastErrorMessage = null;
+          }
+        }
+
+        operationResult = {
+          action: dto.action,
+          title: 'Xoa toan bo log tren may',
+          description: connectorDeleteResult.result.message,
+          machineCode: before.code,
+          machineName: before.name,
+          branchName,
+          exportedAt: operationAt.toISOString(),
+          totalRecords: selectedLogCount,
+          deletedCount,
+          connector: connectorDeleteResult.connector,
+          connectorResult: connectorDeleteResult.result,
+          totalMachineLogCount: totalLogsOnDevice,
+          remainingLogCount:
+            connectorMetadata.remainingLogCount === null ||
+            connectorMetadata.remainingLogCount === undefined
+              ? undefined
+              : Number(connectorMetadata.remainingLogCount),
+          rangeCoveredAllLogs: true,
+          deleteStrategy: deleteStrategyLabel,
+          devicePreview: Array.isArray(connectorMetadata.previewLogs)
+            ? connectorMetadata.previewLogs.slice(0, 8)
+            : [],
+          preview: previewLogs,
+          records: previewLogs,
+        };
+        operationAuditResult = {
+          title: 'Xoa toan bo log tren may',
+          totalRecords: selectedLogCount,
+          deletedCount,
+          totalMachineLogCount: totalLogsOnDevice,
+          connectorKey: connectorDeleteResult.connector.key,
+          connectorSupported: connectorDeleteResult.result.supported,
+          deleteStrategy,
+          exportedAt: operationAt.toISOString(),
+        };
+        break;
+      }
+      case 'LINK_MACHINE_PERSON': {
+        const person = await this.resolveAttendanceEnrollmentPerson(
+          before.branchId,
+          dto,
+        );
+        const personMap = await this.saveAttendanceMachinePersonMap({
+          machine: {
+            id: before.id,
+            branchId: before.branchId,
+          },
+          personType: person.personType,
+          personId: person.personId,
+          appAttendanceCode: person.appAttendanceCode,
+          machineUserId: person.machineUserId,
+          machineCode: person.machineCode,
+          cardCode: person.cardCode,
+        });
+        data.lastSyncedAt = operationAt;
+        operationResult = {
+          action: dto.action,
+          title: 'Lien ket ma may voi doi tuong trong he thong',
+          description:
+            'Luu mapping giua machine user id va nhan vien / hoi vien hien co de cac lan pull log sau co the doi khop chinh xac.',
+          machineCode: before.code,
+          machineName: before.name,
+          branchName,
+          syncedAt: operationAt.toISOString(),
+          totalRecords: 1,
+          preview: [
+            {
+              recordType: person.personType,
+              entityId: person.personId,
+              entityCode: person.machineCode || person.appAttendanceCode || '-',
+              displayName: person.displayName,
+              attendanceCode:
+                person.appAttendanceCode || person.machineUserId || '-',
+              status: 'SYNCED',
+              note:
+                person.cardCode ||
+                person.machineUserId ||
+                person.machineCode ||
+                '-',
+            },
+          ],
+          records: [
+            {
+              personMapId: personMap.id,
+            },
+          ],
+        };
+        operationAuditResult = {
+          title: 'Lien ket ma may voi doi tuong trong he thong',
+          personType: person.personType,
+          personId: person.personId,
+          syncedAt: operationAt.toISOString(),
+        };
+        break;
+      }
+      case 'ENROLL_CARD':
+      case 'ENROLL_FACE': {
+        const enrollmentType =
+          dto.action === 'ENROLL_FACE' ? 'FACE' : 'CARD';
+        const person = await this.resolveAttendanceEnrollmentPerson(
+          before.branchId,
+          dto,
+        );
+        const connectorEnrollment =
+          await this.attendanceDevicesService.createEnrollment(id, {
+            personType: person.personType,
+            personId: person.personId,
+            enrollmentType,
+            displayName: person.displayName,
+            appAttendanceCode: person.appAttendanceCode,
+            machineCode: person.machineCode,
+            machineUserId: person.machineUserId,
+            cardCode: person.cardCode,
+            faceImageUrl: person.faceImageUrl,
+            faceImageBase64: person.faceImageBase64,
+          });
+        const savedArtifacts = await this.saveAttendanceEnrollmentArtifacts({
+          machine: {
+            id: before.id,
+            branchId: before.branchId,
+            code: before.code,
+          },
+          enrollmentType,
+          personType: person.personType,
+          personId: person.personId,
+          displayName: person.displayName,
+          appAttendanceCode: person.appAttendanceCode,
+          machineUserId: person.machineUserId,
+          machineCode: person.machineCode,
+          cardCode: person.cardCode,
+          faceImageUrl: person.faceImageUrl,
+          faceImageBase64: person.faceImageBase64,
+          connectorResult: connectorEnrollment.result.metadata,
+        });
+        data.connectionStatus = 'CONNECTED';
+        data.syncEnabled = true;
+        data.lastSyncedAt = operationAt;
+        operationResult = {
+          action: dto.action,
+          title:
+            enrollmentType === 'FACE'
+              ? 'Day enrollment khuon mat len may'
+              : 'Day enrollment the len may',
+          description:
+            enrollmentType === 'FACE'
+              ? 'Da tao enrollment khuon mat, cap nhat mapping va luu biometric asset tham chieu.'
+              : 'Da tao enrollment the, cap nhat mapping va luu metadata the.',
+          machineCode: before.code,
+          machineName: before.name,
+          branchName,
+          syncedAt: operationAt.toISOString(),
+          totalRecords: 1,
+          connector: connectorEnrollment.connector,
+          connectorResult: connectorEnrollment.result,
+          preview: [
+            {
+              recordType: person.personType,
+              entityId: person.personId,
+              entityCode: person.machineCode || person.appAttendanceCode || '-',
+              displayName: person.displayName,
+              attendanceCode:
+                person.appAttendanceCode || person.machineUserId || '-',
+              status: connectorEnrollment.result.supported
+                ? 'SYNCED'
+                : 'PENDING',
+              note:
+                enrollmentType === 'CARD'
+                  ? person.cardCode || '-'
+                  : person.faceImageUrl
+                    ? 'Face URL ready'
+                    : person.faceImageBase64
+                      ? 'Face base64 ready'
+                      : '-',
+            },
+          ],
+          records: [
+            {
+              personMapId: savedArtifacts.personMap.id,
+              enrollmentId: savedArtifacts.enrollment.id,
+            },
+          ],
+        };
+        operationAuditResult = {
+          title:
+            enrollmentType === 'FACE'
+              ? 'Day enrollment khuon mat len may'
+              : 'Day enrollment the len may',
+          personType: person.personType,
+          personId: person.personId,
+          connectorKey: connectorEnrollment.connector.key,
+          connectorSupported: connectorEnrollment.result.supported,
+          syncedAt: operationAt.toISOString(),
+        };
+        break;
+      }
       default:
         throw new BadRequestException('Hanh dong maintenance khong hop le');
     }
@@ -2008,6 +3612,849 @@ export class SystemService {
       payload,
     );
     return payload;
+  }
+
+  private async loadShiftAssignmentEventsByUser(
+    userIds: string[],
+    referenceDate = new Date(),
+  ) {
+    const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+    if (!uniqueUserIds.length) {
+      return {} as Record<string, Array<{ eventAt: Date; eventType: string }>>;
+    }
+
+    const events = await this.prisma.staffAttendanceEvent.findMany({
+      where: {
+        userId: { in: uniqueUserIds },
+        eventAt: {
+          gte: startOfDay(addDays(referenceDate, -1)),
+          lte: endOfDay(addDays(referenceDate, 1)),
+        },
+      },
+      select: {
+        userId: true,
+        eventAt: true,
+        eventType: true,
+      },
+      orderBy: { eventAt: 'asc' },
+    });
+
+    return events.reduce<
+      Record<string, Array<{ eventAt: Date; eventType: string }>>
+    >((acc, event) => {
+      acc[event.userId] ||= [];
+      acc[event.userId].push({
+        eventAt: event.eventAt,
+        eventType: event.eventType,
+      });
+      return acc;
+    }, {});
+  }
+
+  private async resolveShiftAssignmentUsers(branchId: string, userIds: string[]) {
+    const uniqueUserIds = Array.from(
+      new Set(userIds.map((item) => item.trim()).filter(Boolean)),
+    );
+    if (!uniqueUserIds.length) {
+      throw new BadRequestException('Can chon it nhat mot nhan vien de phan ca.');
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { in: uniqueUserIds },
+        branchId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        username: true,
+        employeeCode: true,
+        attendanceCode: true,
+        fullName: true,
+      },
+      orderBy: [{ fullName: 'asc' }, { username: 'asc' }],
+    });
+
+    if (users.length !== uniqueUserIds.length) {
+      throw new BadRequestException(
+        'Co nhan vien khong ton tai hoac khong thuoc chi nhanh da chon.',
+      );
+    }
+
+    return users;
+  }
+
+  private async resolveShiftAssignmentShifts(
+    branchId: string,
+    input: {
+      includeAllShifts?: boolean;
+      shiftIds?: string[];
+    },
+  ) {
+    if (input.includeAllShifts) {
+      const shifts = await this.prisma.staffShift.findMany({
+        where: {
+          branchId,
+          deletedAt: null,
+        },
+        orderBy: [{ startTime: 'asc' }, { code: 'asc' }],
+      });
+
+      if (!shifts.length) {
+        throw new BadRequestException(
+          'Chi nhanh nay chua co ca nao de tao lich phan ca.',
+        );
+      }
+
+      return shifts;
+    }
+
+    const shiftIds = Array.from(
+      new Set((input.shiftIds || []).map((item) => item.trim()).filter(Boolean)),
+    );
+    if (!shiftIds.length) {
+      throw new BadRequestException('Can chon it nhat mot ca lam.');
+    }
+
+    const shifts = await this.prisma.staffShift.findMany({
+      where: {
+        id: { in: shiftIds },
+        branchId,
+        deletedAt: null,
+      },
+      orderBy: [{ startTime: 'asc' }, { code: 'asc' }],
+    });
+
+    if (shifts.length !== shiftIds.length) {
+      throw new BadRequestException(
+        'Co ca lam khong ton tai hoac khong thuoc chi nhanh da chon.',
+      );
+    }
+
+    const shiftMap = new Map(shifts.map((item) => [item.id, item]));
+    return shiftIds
+      .map((id) => shiftMap.get(id))
+      .filter((item): item is (typeof shifts)[number] => Boolean(item));
+  }
+
+  async listStaffShifts(query: QueryDto, user: AuthUser) {
+    const branchId = this.scopedBranchId(query, user);
+    const where: Prisma.StaffShiftWhereInput = {
+      deletedAt: null,
+      ...(branchId ? { branchId } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { code: { contains: query.search, mode: 'insensitive' } },
+              { name: { contains: query.search, mode: 'insensitive' } },
+              { startTime: { contains: query.search, mode: 'insensitive' } },
+              { endTime: { contains: query.search, mode: 'insensitive' } },
+              { note: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+      ...(query.status === 'OVERNIGHT'
+        ? { isOvernight: true }
+        : query.status === 'DAY'
+          ? { isOvernight: false }
+          : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.staffShift.findMany({
+        where,
+        include: {
+          branch: true,
+          _count: {
+            select: {
+              assignments: true,
+            },
+          },
+        },
+        orderBy: buildSort(query),
+        ...buildPagination(query),
+      }),
+      this.prisma.staffShift.count({ where }),
+    ]);
+
+    return buildListResponse(
+      data.map((item) => this.mapStaffShiftRecord(item)),
+      total,
+      query,
+    );
+  }
+
+  async getStaffShift(id: string, user: AuthUser) {
+    const payload = await this.prisma.staffShift.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        branch: true,
+        assignments: {
+          include: {
+            assignment: {
+              include: {
+                user: true,
+              },
+            },
+          },
+          orderBy: { sequence: 'asc' },
+        },
+        _count: {
+          select: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    if (!payload) {
+      throw new NotFoundException('Ca lam khong ton tai');
+    }
+
+    this.assertBranchAccess(payload.branchId, user);
+
+    const mapped = this.mapStaffShiftRecord(payload);
+    return {
+      ...mapped,
+      assignments: payload.assignments
+        .map((item) => item.assignment)
+        .filter((assignment) => Boolean(assignment) && !assignment.deletedAt)
+        .map((assignment) => ({
+          id: assignment.id,
+          code: assignment.code,
+          name: assignment.name || '',
+          userId: assignment.userId,
+          staffName: assignment.user?.fullName || '',
+          username: assignment.user?.username || '',
+          startDate: assignment.startDate.toISOString(),
+          endDate: assignment.endDate?.toISOString() || '',
+        })),
+    };
+  }
+
+  async createStaffShift(dto: CreateStaffShiftDto, user: AuthUser) {
+    this.assertBranchAccess(dto.branchId, user);
+
+    const payload = await this.prisma.staffShift.create({
+      data: {
+        branchId: dto.branchId,
+        code: dto.code || this.buildStaffShiftCode(),
+        name: dto.name,
+        startTime: dto.startTime,
+        endTime: dto.endTime,
+        breakMinutes: dto.breakMinutes ?? 0,
+        workHours: dto.workHours,
+        lateToleranceMinutes: dto.lateToleranceMinutes ?? 0,
+        earlyLeaveToleranceMinutes: dto.earlyLeaveToleranceMinutes ?? 0,
+        overtimeAfterMinutes: dto.overtimeAfterMinutes ?? 0,
+        mealAllowance: dto.mealAllowance ?? 0,
+        nightAllowance: dto.nightAllowance ?? 0,
+        isOvernight: dto.isOvernight ?? false,
+        note: dto.note,
+      },
+      include: {
+        branch: true,
+        _count: {
+          select: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    const mapped = this.mapStaffShiftRecord(payload);
+    await this.audit(
+      user,
+      'staff-shifts',
+      AuditAction.CREATE,
+      'staff_shift',
+      payload.id,
+      undefined,
+      mapped,
+      payload.branchId,
+    );
+    return mapped;
+  }
+
+  async updateStaffShift(id: string, dto: UpdateStaffShiftDto, user: AuthUser) {
+    const before = await this.prisma.staffShift.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        branch: true,
+        _count: {
+          select: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    if (!before) {
+      throw new NotFoundException('Ca lam khong ton tai');
+    }
+
+    this.assertBranchAccess(before.branchId, user);
+    if (dto.branchId) {
+      this.assertBranchAccess(dto.branchId, user);
+    }
+
+    const payload = await this.prisma.staffShift.update({
+      where: { id },
+      data: {
+        ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
+        ...(dto.code !== undefined ? { code: dto.code } : {}),
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.startTime !== undefined ? { startTime: dto.startTime } : {}),
+        ...(dto.endTime !== undefined ? { endTime: dto.endTime } : {}),
+        ...(dto.breakMinutes !== undefined
+          ? { breakMinutes: dto.breakMinutes }
+          : {}),
+        ...(dto.workHours !== undefined ? { workHours: dto.workHours } : {}),
+        ...(dto.lateToleranceMinutes !== undefined
+          ? { lateToleranceMinutes: dto.lateToleranceMinutes }
+          : {}),
+        ...(dto.earlyLeaveToleranceMinutes !== undefined
+          ? {
+              earlyLeaveToleranceMinutes: dto.earlyLeaveToleranceMinutes,
+            }
+          : {}),
+        ...(dto.overtimeAfterMinutes !== undefined
+          ? { overtimeAfterMinutes: dto.overtimeAfterMinutes }
+          : {}),
+        ...(dto.mealAllowance !== undefined
+          ? { mealAllowance: dto.mealAllowance }
+          : {}),
+        ...(dto.nightAllowance !== undefined
+          ? { nightAllowance: dto.nightAllowance }
+          : {}),
+        ...(dto.isOvernight !== undefined
+          ? { isOvernight: dto.isOvernight }
+          : {}),
+        ...(dto.note !== undefined ? { note: dto.note } : {}),
+      },
+      include: {
+        branch: true,
+        _count: {
+          select: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    const beforeMapped = this.mapStaffShiftRecord(before);
+    const mapped = this.mapStaffShiftRecord(payload);
+    await this.audit(
+      user,
+      'staff-shifts',
+      AuditAction.UPDATE,
+      'staff_shift',
+      id,
+      beforeMapped,
+      mapped,
+      payload.branchId,
+    );
+    return mapped;
+  }
+
+  async removeStaffShift(id: string, user: AuthUser) {
+    const before = await this.prisma.staffShift.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        branch: true,
+        _count: {
+          select: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    if (!before) {
+      throw new NotFoundException('Ca lam khong ton tai');
+    }
+
+    this.assertBranchAccess(before.branchId, user);
+
+    const payload = await this.prisma.staffShift.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+      },
+      include: {
+        branch: true,
+        _count: {
+          select: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    await this.audit(
+      user,
+      'staff-shifts',
+      AuditAction.DELETE,
+      'staff_shift',
+      id,
+      this.mapStaffShiftRecord(before),
+      this.mapStaffShiftRecord(payload),
+      payload.branchId,
+    );
+    return { success: true };
+  }
+
+  async listStaffShiftAssignments(query: QueryDto, user: AuthUser) {
+    const branchId = this.scopedBranchId(query, user);
+    const where: Prisma.StaffShiftAssignmentWhereInput = {
+      deletedAt: null,
+      ...(branchId ? { branchId } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { code: { contains: query.search, mode: 'insensitive' } },
+              { name: { contains: query.search, mode: 'insensitive' } },
+              {
+                user: {
+                  fullName: { contains: query.search, mode: 'insensitive' },
+                },
+              },
+              {
+                user: {
+                  username: { contains: query.search, mode: 'insensitive' },
+                },
+              },
+              {
+                user: {
+                  employeeCode: {
+                    contains: query.search,
+                    mode: 'insensitive',
+                  },
+                },
+              },
+              {
+                user: {
+                  attendanceCode: {
+                    contains: query.search,
+                    mode: 'insensitive',
+                  },
+                },
+              },
+              {
+                shifts: {
+                  some: {
+                    shift: {
+                      OR: [
+                        {
+                          code: {
+                            contains: query.search,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          name: {
+                            contains: query.search,
+                            mode: 'insensitive',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const data = await this.prisma.staffShiftAssignment.findMany({
+      where,
+      include: {
+        branch: true,
+        user: true,
+        shifts: {
+          where: {
+            shift: {
+              deletedAt: null,
+            },
+          },
+          include: {
+            shift: true,
+          },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { startDate: 'desc' }],
+    });
+
+    const eventsByUser = await this.loadShiftAssignmentEventsByUser(
+      data.map((item) => item.userId),
+    );
+    const mapped = data.map((item) =>
+      this.mapStaffShiftAssignmentRecord(item, eventsByUser),
+    );
+    const filtered = query.status
+      ? mapped.filter((item) => item.currentShiftStatus === query.status)
+      : mapped;
+    const offset = (query.page - 1) * query.pageSize;
+    const paged = filtered.slice(offset, offset + query.pageSize);
+
+    return buildListResponse(paged, filtered.length, query);
+  }
+
+  async getStaffShiftAssignment(id: string, user: AuthUser) {
+    const payload = await this.prisma.staffShiftAssignment.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        branch: true,
+        user: true,
+        shifts: {
+          where: {
+            shift: {
+              deletedAt: null,
+            },
+          },
+          include: {
+            shift: true,
+          },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+    });
+
+    if (!payload) {
+      throw new NotFoundException('Phan ca nhan vien khong ton tai');
+    }
+
+    this.assertBranchAccess(payload.branchId, user);
+    const eventsByUser = await this.loadShiftAssignmentEventsByUser([
+      payload.userId,
+    ]);
+    return this.mapStaffShiftAssignmentRecord(payload, eventsByUser);
+  }
+
+  async createStaffShiftAssignment(
+    dto: CreateStaffShiftAssignmentDto,
+    user: AuthUser,
+  ) {
+    this.assertBranchAccess(dto.branchId, user);
+
+    const [users, shifts] = await Promise.all([
+      this.resolveShiftAssignmentUsers(dto.branchId, dto.userIds),
+      this.resolveShiftAssignmentShifts(dto.branchId, {
+        includeAllShifts: dto.includeAllShifts,
+        shiftIds: dto.shiftIds,
+      }),
+    ]);
+    const includeAllShifts = await this.resolveShiftAssignmentIncludeAllFlag(
+      dto.branchId,
+      shifts.length,
+      dto.includeAllShifts,
+    );
+    const derivedSuggestion = this.buildStaffShiftAssignmentSuggestion(
+      shifts,
+      includeAllShifts,
+    );
+    const desiredBaseCode =
+      this.normalizeAttendanceCode(dto.code) ||
+      derivedSuggestion.code ||
+      this.buildStaffShiftAssignmentCode(
+        users[0]?.employeeCode || users[0]?.attendanceCode || users[0]?.username,
+      );
+    const uniqueCodes = await this.buildUniqueStaffShiftAssignmentCodes(
+      dto.branchId,
+      desiredBaseCode,
+      users.length,
+    );
+    const nextAssignmentName =
+      String(dto.name || '').trim() ||
+      derivedSuggestion.name ||
+      `${users[0]?.fullName || 'Nhan vien'} - ${
+        shifts.length > 1 ? 'Ca xoay' : shifts[0]?.name || 'Ca lam'
+      }`;
+    const nextStartDate = dto.startDate
+      ? startOfDay(new Date(dto.startDate))
+      : startOfDay(new Date());
+    const nextRotationCycleDays = this.resolveShiftAssignmentCycleDays(
+      dto.rotationCycleDays,
+    );
+
+    const created = await this.prisma.$transaction(
+      users.map((staff, index) =>
+        this.prisma.staffShiftAssignment.create({
+          data: {
+            branchId: dto.branchId,
+            userId: staff.id,
+            code: uniqueCodes[index],
+            name: nextAssignmentName,
+            startDate: nextStartDate,
+            endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+            rotationCycleDays: nextRotationCycleDays,
+            isUnlimitedRotation: dto.isUnlimitedRotation ?? true,
+            includeAllShifts,
+            note: dto.note,
+            shifts: {
+              create: shifts.map((shift, shiftIndex) => ({
+                shiftId: shift.id,
+                sequence: shiftIndex,
+              })),
+            },
+          },
+          include: {
+            branch: true,
+            user: true,
+            shifts: {
+              include: {
+                shift: true,
+              },
+              orderBy: { sequence: 'asc' },
+            },
+          },
+        }),
+      ),
+    );
+
+    const eventsByUser = await this.loadShiftAssignmentEventsByUser(
+      created.map((item) => item.userId),
+    );
+    const mapped = created.map((item) =>
+      this.mapStaffShiftAssignmentRecord(item, eventsByUser),
+    );
+
+    for (const item of mapped) {
+      await this.audit(
+        user,
+        'staff-shift-assignments',
+        AuditAction.CREATE,
+        'staff_shift_assignment',
+        item.id,
+        undefined,
+        item,
+        item.branchId,
+      );
+    }
+
+    return mapped.length === 1
+      ? mapped[0]
+      : { createdCount: mapped.length, items: mapped };
+  }
+
+  async updateStaffShiftAssignment(
+    id: string,
+    dto: UpdateStaffShiftAssignmentDto,
+    user: AuthUser,
+  ) {
+    const before = await this.prisma.staffShiftAssignment.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        branch: true,
+        user: true,
+        shifts: {
+          include: {
+            shift: true,
+          },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+    });
+
+    if (!before) {
+      throw new NotFoundException('Phan ca nhan vien khong ton tai');
+    }
+
+    this.assertBranchAccess(before.branchId, user);
+
+    const nextBranchId = dto.branchId || before.branchId;
+    if (dto.branchId) {
+      this.assertBranchAccess(dto.branchId, user);
+    }
+
+    let nextShiftIds: string[] | undefined;
+    let nextIncludeAllShifts = before.includeAllShifts;
+    if (
+      dto.includeAllShifts !== undefined ||
+      dto.shiftIds !== undefined
+    ) {
+      const shifts = await this.resolveShiftAssignmentShifts(nextBranchId, {
+        includeAllShifts:
+          dto.includeAllShifts !== undefined
+            ? dto.includeAllShifts
+            : before.includeAllShifts,
+        shiftIds:
+          dto.shiftIds !== undefined
+            ? dto.shiftIds
+            : before.shifts.map((item) => item.shiftId),
+      });
+      nextShiftIds = shifts.map((item) => item.id);
+      nextIncludeAllShifts = await this.resolveShiftAssignmentIncludeAllFlag(
+        nextBranchId,
+        nextShiftIds.length,
+        dto.includeAllShifts,
+      );
+    }
+
+    let nextUserId = before.userId;
+    if (dto.userId || dto.userIds?.length) {
+      const users = await this.resolveShiftAssignmentUsers(nextBranchId, [
+        dto.userId || dto.userIds?.[0] || before.userId,
+      ]);
+      nextUserId = users[0].id;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.staffShiftAssignment.update({
+        where: { id },
+        data: {
+          ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
+          ...(dto.code !== undefined ? { code: dto.code } : {}),
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(nextUserId !== before.userId ? { userId: nextUserId } : {}),
+          ...(dto.startDate !== undefined
+            ? { startDate: new Date(dto.startDate) }
+            : {}),
+          ...(dto.endDate !== undefined ? { endDate: new Date(dto.endDate) } : {}),
+          ...(dto.rotationCycleDays !== undefined
+            ? {
+                rotationCycleDays: this.resolveShiftAssignmentCycleDays(
+                  dto.rotationCycleDays,
+                ),
+              }
+            : {}),
+          ...(dto.isUnlimitedRotation !== undefined
+            ? { isUnlimitedRotation: dto.isUnlimitedRotation }
+            : {}),
+          ...(dto.includeAllShifts !== undefined || nextShiftIds
+            ? { includeAllShifts: nextIncludeAllShifts }
+            : {}),
+          ...(dto.note !== undefined ? { note: dto.note } : {}),
+        },
+      });
+
+      if (nextShiftIds) {
+        await tx.staffShiftAssignmentShift.deleteMany({
+          where: { assignmentId: id },
+        });
+        await tx.staffShiftAssignmentShift.createMany({
+          data: nextShiftIds.map((shiftId, index) => ({
+            assignmentId: id,
+            shiftId,
+            sequence: index,
+          })),
+        });
+      }
+    });
+
+    const payload = await this.prisma.staffShiftAssignment.findFirst({
+      where: { id },
+      include: {
+        branch: true,
+        user: true,
+        shifts: {
+          where: {
+            shift: {
+              deletedAt: null,
+            },
+          },
+          include: {
+            shift: true,
+          },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+    });
+
+    if (!payload) {
+      throw new NotFoundException('Phan ca nhan vien khong ton tai');
+    }
+
+    const eventsByUser = await this.loadShiftAssignmentEventsByUser([
+      before.userId,
+      payload.userId,
+    ]);
+    const beforeMapped = this.mapStaffShiftAssignmentRecord(
+      before,
+      eventsByUser,
+    );
+    const mapped = this.mapStaffShiftAssignmentRecord(payload, eventsByUser);
+    await this.audit(
+      user,
+      'staff-shift-assignments',
+      AuditAction.UPDATE,
+      'staff_shift_assignment',
+      id,
+      beforeMapped,
+      mapped,
+      payload.branchId,
+    );
+    return mapped;
+  }
+
+  async removeStaffShiftAssignment(id: string, user: AuthUser) {
+    const before = await this.prisma.staffShiftAssignment.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        branch: true,
+        user: true,
+        shifts: {
+          where: {
+            shift: {
+              deletedAt: null,
+            },
+          },
+          include: {
+            shift: true,
+          },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+    });
+
+    if (!before) {
+      throw new NotFoundException('Phan ca nhan vien khong ton tai');
+    }
+
+    this.assertBranchAccess(before.branchId, user);
+
+    await this.prisma.staffShiftAssignment.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+      },
+    });
+
+    const eventsByUser = await this.loadShiftAssignmentEventsByUser([
+      before.userId,
+    ]);
+    await this.audit(
+      user,
+      'staff-shift-assignments',
+      AuditAction.DELETE,
+      'staff_shift_assignment',
+      id,
+      this.mapStaffShiftAssignmentRecord(before, eventsByUser),
+      { deleted: true },
+      before.branchId,
+    );
+
+    return { success: true };
   }
 
   async listStaffAttendanceEvents(query: QueryDto, user: AuthUser) {

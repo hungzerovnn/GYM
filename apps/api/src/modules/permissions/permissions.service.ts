@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   getGrantedPermissionCodes,
+  modulePermissions,
+  permissionActions,
   systemRoles,
 } from '../../common/constants/bootstrap.constants';
 import {
@@ -14,13 +16,77 @@ export class PermissionsService {
   private static readonly detailedReportsMigrationKey =
     'detailed_report_permissions_v1';
   private static readonly rolePermissionCatalogSyncKey =
-    'role_permission_catalog_sync_v5';
+    'role_permission_catalog_sync_v6';
+  private static readonly genericPermissionCatalogSyncKey =
+    'generic_permission_catalog_sync_v1';
 
   constructor(private readonly prisma: PrismaService) {}
 
   async ensureCatalog() {
+    await this.ensureGenericPermissions();
     await this.ensureDetailedReportPermissions();
     await this.ensureRolePermissionCatalogSync();
+  }
+
+  private async ensureGenericPermissions() {
+    const applied = await this.prisma.appSetting.findFirst({
+      where: {
+        branchId: null,
+        group: 'system',
+        key: PermissionsService.genericPermissionCatalogSyncKey,
+      },
+      select: { id: true },
+    });
+
+    const expectedPermissions = modulePermissions.flatMap((module) =>
+      permissionActions.map((action) => ({
+        code: `${module}.${action}`,
+        module,
+        action,
+        description: `${action} ${module}`,
+      })),
+    );
+
+    const existingPermissions = await this.prisma.permission.findMany({
+      where: {
+        code: {
+          in: expectedPermissions.map((permission) => permission.code),
+        },
+      },
+      select: {
+        code: true,
+      },
+    });
+
+    const existingCodes = new Set(
+      existingPermissions.map((permission) => permission.code),
+    );
+    const missingPermissions = expectedPermissions.filter(
+      (permission) => !existingCodes.has(permission.code),
+    );
+
+    if (missingPermissions.length) {
+      await this.prisma.permission.createMany({
+        data: missingPermissions,
+        skipDuplicates: true,
+      });
+    }
+
+    if (applied) {
+      return;
+    }
+
+    await this.prisma.appSetting.create({
+      data: {
+        branchId: null,
+        group: 'system',
+        key: PermissionsService.genericPermissionCatalogSyncKey,
+        value: {
+          appliedAt: new Date().toISOString(),
+          permissionCount: expectedPermissions.length,
+        },
+      },
+    });
   }
 
   private async ensureDetailedReportPermissions() {

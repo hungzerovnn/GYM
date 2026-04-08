@@ -3,6 +3,7 @@ import {
   IsArray,
   IsDateString,
   IsEmail,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -282,4 +283,19 @@ export class BulkLeadConvertDto {
   @IsArray()
   @IsString({ each: true })
   leadIds!: string[];
+}
+
+export class ToggleMemberPresenceDto {
+  @IsOptional()
+  @IsString()
+  attendanceMachineId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['MANUAL', 'MACHINE'])
+  source?: string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }

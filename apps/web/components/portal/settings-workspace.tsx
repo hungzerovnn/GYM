@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -167,16 +167,23 @@ function SettingEditorPanel({
 }) {
   const { locale } = useLocale();
   const localizedSetting = useMemo(() => localizeSettingDefinition(setting), [locale, setting]);
+  const settingBaseKey = getSettingBaseKey(localizedSetting);
   const queryClient = useQueryClient();
   const schema = useMemo(() => buildSchema(localizedSetting), [localizedSetting]);
   const sections = useMemo(() => getFieldSections(localizedSetting), [localizedSetting]);
   const canPreview = canPrintSettingPreview(localizedSetting);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
 
   const form = useForm<SettingFormValues>({
     resolver: zodResolver(schema),
     defaultValues: buildDefaults(localizedSetting, null, locale),
   });
   const watchedBranchId = localizedSetting.fields.some((field) => field.name === "branchId") ? form.watch("branchId") : "";
+  const watchedPrinterMode = settingBaseKey === "print-templates" ? String(form.watch("printerMode") || "BROWSER_DIALOG") : "";
+  const watchedPrinterName =
+    settingBaseKey === "print-templates" ? String(form.watch("defaultPrinterName") || "").trim() : "";
 
   const query = useQuery({
     queryKey: ["setting", localizedSetting.key, watchedBranchId || ""],
@@ -205,6 +212,15 @@ function SettingEditorPanel({
     })),
   });
 
+  const printerPaperSizesQuery = useQuery({
+    queryKey: ["setting-printer-paper-sizes", watchedPrinterName],
+    enabled: settingBaseKey === "print-templates" && watchedPrinterMode !== "NETWORK_IP" && Boolean(watchedPrinterName),
+    queryFn: async () => {
+      const response = await api.get(`/settings/system-printers/${encodeURIComponent(watchedPrinterName)}/paper-sizes`);
+      return Array.isArray(response.data) ? response.data : [];
+    },
+  });
+
   const mutation = useMutation({
     mutationFn: async (values: SettingFormValues) => {
       const payload = Object.fromEntries(
@@ -225,6 +241,59 @@ function SettingEditorPanel({
     mutation.error && typeof mutation.error === "object" && "response" in mutation.error
       ? String((mutation.error as { response?: { data?: { message?: string } } }).response?.data?.message || translateText("Save failed"))
       : null;
+
+  const resolveAssetUrl = (value: string) => {
+    const normalized = value.trim();
+    if (!normalized) return "";
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+
+    const apiBase = String(api.defaults.baseURL || "").replace(/\/api\/?$/, "");
+    if (!apiBase) return normalized;
+    return `${apiBase}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
+  };
+
+  const handleLogoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploadingLogo(true);
+      setLogoUploadError(null);
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const branchId = String(form.getValues("branchId") || "").trim();
+      const params = new URLSearchParams({
+        entityType: "system_setting_logo",
+        entityId: branchId || "company",
+      });
+
+      if (branchId) {
+        params.set("branchId", branchId);
+      }
+
+      const response = await api.post(`/attachments/upload?${params.toString()}`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      const nextUrl = resolveAssetUrl(String(response.data?.fileUrl || ""));
+      form.setValue("logoUrl", nextUrl, { shouldDirty: true, shouldValidate: true });
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "response" in error
+          ? String((error as { response?: { data?: { message?: string } } }).response?.data?.message || translateText("Upload logo failed"))
+          : translateText("Upload logo failed");
+      setLogoUploadError(message);
+    } finally {
+      setUploadingLogo(false);
+      if (event.target) {
+        event.target.value = "";
+      }
+    }
+  };
 
   const handlePrintPreview = () => {
     const values = form.getValues();
@@ -285,7 +354,25 @@ function SettingEditorPanel({
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              {fields.map((field) => {
+              {fields.filter((field) => {
+                if (settingBaseKey !== "print-templates") {
+                  return true;
+                }
+
+                if (field.name === "defaultPrinterName") {
+                  return watchedPrinterMode !== "NETWORK_IP";
+                }
+
+                if (["printerIpAddress", "printerPort", "printerProtocol"].includes(field.name)) {
+                  return watchedPrinterMode === "NETWORK_IP";
+                }
+
+                if (["printerQueueName", "printerDriverHint"].includes(field.name)) {
+                  return false;
+                }
+
+                return true;
+              }).map((field) => {
                 const optionsQuery = optionsQueries[localizedSetting.fields.findIndex((item) => item.name === field.name)];
                 const options =
                   field.options ||
@@ -297,7 +384,14 @@ function SettingEditorPanel({
                     : []);
 
                 const error = form.formState.errors[field.name]?.message?.toString();
-                const spanClass = field.span === 2 ? "md:col-span-2" : field.span === 3 ? "md:col-span-2" : "";
+                const spanClass =
+                  settingBaseKey === "print-templates" && ["printerMode", "defaultPrinterName", "paperSize", "printerIpAddress"].includes(field.name)
+                    ? "md:col-span-2"
+                    : field.span === 2
+                      ? "md:col-span-2"
+                      : field.span === 3
+                        ? "md:col-span-2"
+                        : "";
                 const inputType =
                   field.type === "number" || field.type === "currency"
                     ? "number"
@@ -325,6 +419,81 @@ function SettingEditorPanel({
                           </option>
                         ))}
                       </select>
+                    ) : settingBaseKey === "print-templates" && field.name === "defaultPrinterName" ? (
+                      options.length ? (
+                        <select {...form.register(field.name)}>
+                          <option value="">{translateText("Chon may in he thong")}</option>
+                          {options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {translateText(option.label)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          {...form.register(field.name)}
+                          placeholder={translateText("Khong doc duoc danh sach may in he thong tren may nay. Co the nhap tay neu can.")}
+                          type="text"
+                        />
+                      )
+                    ) : settingBaseKey === "print-templates" && field.name === "paperSize" ? (
+                      Array.isArray(printerPaperSizesQuery.data) && printerPaperSizesQuery.data.length ? (
+                        <select {...form.register(field.name)}>
+                          {printerPaperSizesQuery.data.map((option: Record<string, unknown>) => {
+                            const value = String(option.name || option.displayName || "");
+                            const label = String(option.displayName || option.name || value);
+                            return (
+                              <option key={value} value={value}>
+                                {translateText(label)}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ) : (
+                        <input
+                          {...form.register(field.name)}
+                          placeholder={translateText(field.placeholder || field.description || "")}
+                          type="text"
+                        />
+                      )
+                    ) : field.name === "logoUrl" ? (
+                      <div className="space-y-2">
+                        <div className="flex flex-col gap-2 md:flex-row">
+                          <input
+                            {...form.register(field.name)}
+                            placeholder={translateText(field.placeholder || field.description || "")}
+                            type="text"
+                          />
+                          <input
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleLogoUpload}
+                            ref={logoInputRef}
+                            type="file"
+                          />
+                          <button
+                            className="secondary-button shrink-0"
+                            disabled={uploadingLogo}
+                            onClick={() => logoInputRef.current?.click()}
+                            type="button"
+                          >
+                            {uploadingLogo ? translateText("Dang tai logo...") : translateText("Tai logo len")}
+                          </button>
+                          {form.watch("logoUrl") ? (
+                            <a
+                              className="secondary-button shrink-0"
+                              href={resolveAssetUrl(String(form.watch("logoUrl") || ""))}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              {translateText("Xem logo")}
+                            </a>
+                          ) : null}
+                        </div>
+                        <small className="!text-slate-500">
+                          {translateText("Ban co the paste URL logo hoac bam 'Tai logo len'. Sau khi upload xong, he thong se tu dien URL vao o nay.")}
+                        </small>
+                      </div>
                     ) : (
                       <input
                         {...form.register(field.name)}
@@ -334,6 +503,7 @@ function SettingEditorPanel({
                       />
                     )}
                     {field.description ? <small className="!text-slate-500">{translateText(field.description)}</small> : null}
+                    {field.name === "logoUrl" && logoUploadError ? <small>{logoUploadError}</small> : null}
                     {error ? <small>{error}</small> : null}
                   </label>
                 );

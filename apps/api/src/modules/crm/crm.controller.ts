@@ -21,6 +21,7 @@ import {
   CreateCustomerSourceDto,
   CreateLeadDto,
   CreateLeadLogDto,
+  ToggleMemberPresenceDto,
   UpdateCustomerDto,
   UpdateCustomerGroupDto,
   UpdateCustomerSourceDto,
@@ -154,6 +155,28 @@ export class CrmController {
   @Permissions('customers.delete')
   removeCustomer(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.crmService.removeCustomer(id, user);
+  }
+
+  @Get('member-presence')
+  @Permissions('member-presence.view')
+  listMemberPresence(@Query() query: QueryDto, @CurrentUser() user: AuthUser) {
+    return this.crmService.listMemberPresence(query, user);
+  }
+
+  @Get('member-presence/:id')
+  @Permissions('member-presence.view')
+  getMemberPresence(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.crmService.getMemberPresence(id, user);
+  }
+
+  @Post('member-presence/:id/toggle')
+  @Permissions('member-presence.update')
+  toggleMemberPresence(
+    @Param('id') id: string,
+    @Body() dto: ToggleMemberPresenceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.crmService.toggleMemberPresence(id, dto, user);
   }
 
   @Get('leads')

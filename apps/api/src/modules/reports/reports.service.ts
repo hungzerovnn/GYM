@@ -11,6 +11,7 @@ import {
 } from 'date-fns';
 import { QueryDto } from '../../common/dto/query.dto';
 import { AuthUser } from '../../common/types/auth-user.type';
+import { resolveShiftForDate, summarizeShiftAttendance } from '../../common/utils/staff-shift.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ExportService } from './export.service';
@@ -154,24 +155,30 @@ export class ReportsService {
   private staffShift(roleCodes: string[]) {
     if (roleCodes.includes('trainer')) {
       return {
-        startMinutes: 6 * 60,
-        endMinutes: 14 * 60,
-        label: '06:00 - 14:00',
+        code: 'PT-MORNING',
+        name: 'Ca PT sang',
+        startTime: '06:00',
+        endTime: '14:00',
+        isOvernight: false,
       };
     }
 
     if (roleCodes.includes('customer_care')) {
       return {
-        startMinutes: 9 * 60,
-        endMinutes: 18 * 60,
-        label: '09:00 - 18:00',
+        code: 'CSKH-DAY',
+        name: 'Ca CSKH',
+        startTime: '09:00',
+        endTime: '18:00',
+        isOvernight: false,
       };
     }
 
     return {
-      startMinutes: 8 * 60,
-      endMinutes: 17 * 60 + 30,
-      label: '08:00 - 17:30',
+      code: 'DEFAULT-DAY',
+      name: 'Ca hanh chinh',
+      startTime: '08:00',
+      endTime: '17:30',
+      isOvernight: false,
     };
   }
 
@@ -913,7 +920,7 @@ export class ReportsService {
     const { from, to } = this.attendanceRange(query);
     const staffAttendanceDelegate = (this.prisma as PrismaClient)
       .staffAttendanceEvent;
-    const [staffMembers, events] = await Promise.all([
+    const [staffMembers, events, assignments] = await Promise.all([
       this.prisma.user.findMany({
         where: {
           deletedAt: null,
@@ -936,6 +943,26 @@ export class ReportsService {
         },
         orderBy: { eventAt: 'asc' },
       }),
+      this.prisma.staffShiftAssignment.findMany({
+        where: {
+          deletedAt: null,
+          ...(branchId ? { branchId } : {}),
+        },
+        include: {
+          shifts: {
+            where: {
+              shift: {
+                deletedAt: null,
+              },
+            },
+            include: {
+              shift: true,
+            },
+            orderBy: { sequence: 'asc' },
+          },
+        },
+        orderBy: [{ startDate: 'desc' }, { updatedAt: 'desc' }],
+      }),
     ]);
 
     const attendanceDates = Array.from(
@@ -952,6 +979,13 @@ export class ReportsService {
       acc[key].push(event);
       return acc;
     }, {});
+    const assignmentsByUser = assignments.reduce<
+      Record<string, (typeof assignments)[number][]>
+    >((acc, assignment) => {
+      acc[assignment.userId] ||= [];
+      acc[assignment.userId].push(assignment);
+      return acc;
+    }, {});
 
     type StaffAttendanceRow = {
       attendanceDate: string;
@@ -966,42 +1000,48 @@ export class ReportsService {
       eventCount: number;
       workedHours: number;
       lateMinutes: number;
+      earlyLeaveMinutes: number;
       overtimeMinutes: number;
       machineNames: string;
       verificationMethods: string;
       attendanceStatus: string;
+      shiftCode: string;
     };
 
     const rows: StaffAttendanceRow[] = staffMembers
       .flatMap((staffMember) => {
         const roleCodes = staffMember.roles.map((role) => role.role.code);
-        const shift = this.staffShift(roleCodes);
+        const fallbackShift = this.staffShift(roleCodes);
+        const userAssignments = assignmentsByUser[staffMember.id] || [];
 
         return dateKeys.map((dateKey) => {
+          const targetDate = new Date(`${dateKey}T00:00:00+07:00`);
           const key = `${staffMember.id}:${dateKey}`;
           const dayEvents = (eventsByStaffDay[key] || []).sort(
             (a, b) => a.eventAt.getTime() - b.eventAt.getTime(),
           );
-          const firstCheckIn = dayEvents.find(
-            (event) => event.eventType === 'CHECK_IN',
-          )?.eventAt;
-          const lastCheckOut = [...dayEvents]
-            .reverse()
-            .find((event) => event.eventType === 'CHECK_OUT')?.eventAt;
-          const shiftStart = this.attendanceMoment(dateKey, shift.startMinutes);
-          const shiftEnd = this.attendanceMoment(dateKey, shift.endMinutes);
-          const lateMinutes = firstCheckIn
-            ? Math.max(0, differenceInMinutes(firstCheckIn, shiftStart))
-            : 0;
-          const overtimeMinutes = lastCheckOut
-            ? Math.max(0, differenceInMinutes(lastCheckOut, shiftEnd))
-            : 0;
-          const workedMinutes =
-            firstCheckIn &&
-            lastCheckOut &&
-            lastCheckOut.getTime() > firstCheckIn.getTime()
-              ? differenceInMinutes(lastCheckOut, firstCheckIn)
-              : 0;
+          const resolvedAssignmentShift = userAssignments
+            .map((assignment) =>
+              resolveShiftForDate(
+                {
+                  startDate: assignment.startDate,
+                  endDate: assignment.endDate,
+                  rotationCycleDays: assignment.rotationCycleDays,
+                  isUnlimitedRotation: assignment.isUnlimitedRotation,
+                  shifts: assignment.shifts
+                    .map((item) => item.shift)
+                    .filter(Boolean),
+                },
+                targetDate,
+              ),
+            )
+            .find(Boolean);
+          const shiftSummary = summarizeShiftAttendance({
+            shift: resolvedAssignmentShift?.shift || fallbackShift,
+            targetDate,
+            events: dayEvents,
+            now: endOfDay(targetDate),
+          });
           const machineNames = Array.from(
             new Set(
               dayEvents
@@ -1013,15 +1053,16 @@ export class ReportsService {
             new Set(dayEvents.map((event) => event.verificationMethod)),
           );
 
-          let attendanceStatus = 'ABSENT';
-          if (dayEvents.length) {
-            attendanceStatus =
-              !firstCheckIn || !lastCheckOut
-                ? 'MISSING_CHECKOUT'
-                : lateMinutes > 0
-                  ? 'LATE'
-                  : 'ON_TIME';
-          }
+          const attendanceStatus =
+            shiftSummary.status === 'COMPLETED'
+              ? shiftSummary.lateMinutes > 0
+                ? 'LATE'
+                : 'ON_TIME'
+              : shiftSummary.status === 'LEFT_EARLY'
+                ? 'LEFT_EARLY'
+                : shiftSummary.status === 'NOT_CHECKED_IN'
+                  ? 'ABSENT'
+                  : shiftSummary.status;
 
           return {
             attendanceDate: dateKey,
@@ -1033,16 +1074,19 @@ export class ReportsService {
               staffMember.username,
             staffName: staffMember.fullName,
             role: this.primaryRole(roleCodes),
-            shiftWindow: shift.label,
-            firstCheckInAt: firstCheckIn?.toISOString() || '',
-            lastCheckOutAt: lastCheckOut?.toISOString() || '',
+            shiftWindow: shiftSummary.window?.label || '',
+            firstCheckInAt: shiftSummary.firstCheckIn?.toISOString() || '',
+            lastCheckOutAt: shiftSummary.lastCheckOut?.toISOString() || '',
             eventCount: dayEvents.length,
-            workedHours: Math.round((workedMinutes / 60) * 10) / 10,
-            lateMinutes,
-            overtimeMinutes,
+            workedHours: Math.round((shiftSummary.workedMinutes / 60) * 10) / 10,
+            lateMinutes: shiftSummary.lateMinutes,
+            earlyLeaveMinutes: shiftSummary.earlyLeaveMinutes,
+            overtimeMinutes: shiftSummary.overtimeMinutes,
             machineNames: machineNames.join(', '),
             verificationMethods: verificationMethods.join(', '),
             attendanceStatus,
+            shiftCode:
+              resolvedAssignmentShift?.shift?.code || fallbackShift.code || '',
           };
         });
       })

@@ -73,6 +73,9 @@ export interface ResourceDefinition {
   subtitle: string;
   searchPlaceholder?: string;
   createLabel?: string;
+  allowCreate?: boolean;
+  allowEdit?: boolean;
+  allowDelete?: boolean;
   emptyStateTitle?: string;
   emptyStateDescription?: string;
   defaultFilters?: Record<string, string>;

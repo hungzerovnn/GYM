@@ -20,6 +20,8 @@ import {
   CreateAttendanceMachineDto,
   CreateBranchDto,
   CreateRoleDto,
+  CreateStaffShiftAssignmentDto,
+  CreateStaffShiftDto,
   CreateStaffAttendanceEventDto,
   CreateTenantDatabaseDto,
   CreateUserDto,
@@ -27,6 +29,8 @@ import {
   UpdateAttendanceMachineDto,
   UpdateBranchDto,
   UpdateRoleDto,
+  UpdateStaffShiftAssignmentDto,
+  UpdateStaffShiftDto,
   UpdateStaffAttendanceEventDto,
   UpdateTenantDatabaseDto,
   UpdateUserDto,
@@ -232,6 +236,89 @@ export class SystemController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.systemService.removeAttendanceMachine(id, user);
+  }
+
+  @Get('staff-shifts')
+  @Permissions('staff-shifts.view')
+  listStaffShifts(@Query() query: QueryDto, @CurrentUser() user: AuthUser) {
+    return this.systemService.listStaffShifts(query, user);
+  }
+
+  @Post('staff-shifts')
+  @Permissions('staff-shifts.create')
+  createStaffShift(
+    @Body() dto: CreateStaffShiftDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.systemService.createStaffShift(dto, user);
+  }
+
+  @Get('staff-shifts/:id')
+  @Permissions('staff-shifts.view')
+  getStaffShift(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.systemService.getStaffShift(id, user);
+  }
+
+  @Patch('staff-shifts/:id')
+  @Permissions('staff-shifts.update')
+  updateStaffShift(
+    @Param('id') id: string,
+    @Body() dto: UpdateStaffShiftDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.systemService.updateStaffShift(id, dto, user);
+  }
+
+  @Delete('staff-shifts/:id')
+  @Permissions('staff-shifts.delete')
+  removeStaffShift(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.systemService.removeStaffShift(id, user);
+  }
+
+  @Get('staff-shift-assignments')
+  @Permissions('staff-shift-assignments.view')
+  listStaffShiftAssignments(
+    @Query() query: QueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.systemService.listStaffShiftAssignments(query, user);
+  }
+
+  @Post('staff-shift-assignments')
+  @Permissions('staff-shift-assignments.create')
+  createStaffShiftAssignment(
+    @Body() dto: CreateStaffShiftAssignmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.systemService.createStaffShiftAssignment(dto, user);
+  }
+
+  @Get('staff-shift-assignments/:id')
+  @Permissions('staff-shift-assignments.view')
+  getStaffShiftAssignment(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.systemService.getStaffShiftAssignment(id, user);
+  }
+
+  @Patch('staff-shift-assignments/:id')
+  @Permissions('staff-shift-assignments.update')
+  updateStaffShiftAssignment(
+    @Param('id') id: string,
+    @Body() dto: UpdateStaffShiftAssignmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.systemService.updateStaffShiftAssignment(id, dto, user);
+  }
+
+  @Delete('staff-shift-assignments/:id')
+  @Permissions('staff-shift-assignments.delete')
+  removeStaffShiftAssignment(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.systemService.removeStaffShiftAssignment(id, user);
   }
 
   @Get('staff-attendance-events')

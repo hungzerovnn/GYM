@@ -12,7 +12,7 @@ export function LicenseTopbarActions({ licenseStatus }: { licenseStatus: License
   const { locale } = useLocale();
 
   return (
-    <div className="flex w-full max-w-[720px] flex-col gap-3 rounded-[1rem] border border-slate-200 bg-white/90 px-4 py-3 xl:grid xl:grid-cols-[minmax(260px,1fr)_auto] xl:items-center">
+    <div className="flex w-full max-w-[720px] min-w-0 flex-col gap-3 rounded-[1rem] border border-slate-200 bg-white/90 px-4 py-3 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,332px)] xl:items-center xl:gap-4">
       <div className="min-w-0">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
           <ShieldCheck className="h-4 w-4 text-emerald-600" />

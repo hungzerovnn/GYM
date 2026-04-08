@@ -7,13 +7,63 @@ $postgresData = Join-Path $postgresDir "data"
 $postgresLog = Join-Path $postgresDir "postgres.log"
 $projectDb = "fitness_management"
 $projectPort = 5432
-$apiPort = 3001
+$apiPort = 6273
 $webPort = 6173
 
 function Write-Step {
   param([string]$Message)
   Write-Host ""
   Write-Host "==> $Message" -ForegroundColor Green
+}
+
+function Get-EnvFileValue {
+  param(
+    [string]$Path,
+    [string]$Key
+  )
+
+  if (-not (Test-Path $Path)) {
+    return $null
+  }
+
+  foreach ($line in Get-Content $Path) {
+    if ($line -match "^\s*$Key=(.*)$") {
+      return $matches[1].Trim()
+    }
+  }
+
+  return $null
+}
+
+function Get-DatabasePortFromUrl {
+  param(
+    [string]$DatabaseUrl,
+    [int]$FallbackPort
+  )
+
+  if (-not $DatabaseUrl) {
+    return $FallbackPort
+  }
+
+  if ($DatabaseUrl -match ":(\d+)/") {
+    return [int]$matches[1]
+  }
+
+  return $FallbackPort
+}
+
+function Get-DatabaseNameFromUrl {
+  param([string]$DatabaseUrl)
+
+  if (-not $DatabaseUrl) {
+    return $null
+  }
+
+  if ($DatabaseUrl -match "/([^/?]+)(\?|$)") {
+    return $matches[1]
+  }
+
+  return $null
 }
 
 function Find-PostgresBin {
@@ -101,6 +151,25 @@ function Start-DevWindow {
     "-ExecutionPolicy", "Bypass",
     "-Command", "Set-Location '$root'; $Command"
   ) -WindowStyle Normal | Out-Null
+}
+
+$envFile = Join-Path $root ".env"
+$databaseUrl = Get-EnvFileValue -Path $envFile -Key "DATABASE_URL"
+$configuredApiPort = Get-EnvFileValue -Path $envFile -Key "PORT"
+$configuredAppUrl = Get-EnvFileValue -Path $envFile -Key "APP_URL"
+
+$projectPort = Get-DatabasePortFromUrl -DatabaseUrl $databaseUrl -FallbackPort $projectPort
+$configuredDatabase = Get-DatabaseNameFromUrl -DatabaseUrl $databaseUrl
+if ($configuredDatabase) {
+  $projectDb = $configuredDatabase
+}
+
+if ($configuredApiPort -match "^\d+$") {
+  $apiPort = [int]$configuredApiPort
+}
+
+if ($configuredAppUrl -match ":(\d+)(/|$)") {
+  $webPort = [int]$matches[1]
 }
 
 $postgresBin = Find-PostgresBin

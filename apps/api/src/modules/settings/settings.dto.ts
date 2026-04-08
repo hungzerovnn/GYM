@@ -247,4 +247,8 @@ export class UpdateGeneralSettingDto {
 
   @IsInt()
   uploadLimitMb!: number;
+
+  @IsOptional()
+  @IsInt()
+  memberPresenceOvernightGraceHours?: number;
 }

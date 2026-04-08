@@ -24,7 +24,10 @@ export const modulePermissions = [
   'audit-logs',
   'reports',
   'attendance-machines',
+  'staff-shifts',
+  'staff-shift-assignments',
   'staff-attendance-events',
+  'member-presence',
   'attachments',
   'tenant-databases',
 ] as const;
@@ -112,7 +115,10 @@ const branchManagerModules = [
   'reports',
   'audit-logs',
   'attendance-machines',
+  'staff-shifts',
+  'staff-shift-assignments',
   'staff-attendance-events',
+  'member-presence',
   'attachments',
 ] as const;
 
@@ -120,6 +126,7 @@ const salesModules = [
   'dashboard',
   'customers',
   'leads',
+  'member-presence',
   'contracts',
   'receipts',
   'attachments',
@@ -153,6 +160,7 @@ const accountantLookupViewModules = [
 const trainerModules = [
   'dashboard',
   'customers',
+  'member-presence',
   'trainers',
   'training-sessions',
   'reports',
@@ -168,6 +176,7 @@ const customerCareModules = [
   'dashboard',
   'customers',
   'leads',
+  'member-presence',
   'reports',
   'attachments',
 ] as const;
@@ -188,7 +197,10 @@ const hrModules = [
   'users',
   'branches',
   'attendance-machines',
+  'staff-shifts',
+  'staff-shift-assignments',
   'staff-attendance-events',
+  'member-presence',
   'settings',
   'reports',
 ] as const;
@@ -341,6 +353,7 @@ export const defaultSystemProfile = {
   dateFormat: 'DD/MM/YYYY',
   codeGeneration: true,
   uploadLimitMb: 10,
+  memberPresenceOvernightGraceHours: 6,
 };
 
 export const defaultOtpSetting = {

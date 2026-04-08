@@ -1,0 +1,8 @@
+-- RenameIndex
+ALTER INDEX "attendance_biometric_assets_branchId_attendanceMachineId_assetT" RENAME TO "attendance_biometric_assets_branchId_attendanceMachineId_as_idx";
+
+-- RenameIndex
+ALTER INDEX "attendance_machine_person_maps_attendanceMachineId_machineUserI" RENAME TO "attendance_machine_person_maps_attendanceMachineId_machineU_idx";
+
+-- RenameIndex
+ALTER INDEX "attendance_machine_person_maps_attendanceMachineId_personType_p" RENAME TO "attendance_machine_person_maps_attendanceMachineId_personTy_key";

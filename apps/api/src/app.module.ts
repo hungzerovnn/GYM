@@ -6,6 +6,7 @@ import { HealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { TenantContextMiddleware } from './prisma/tenant-context.middleware';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
+import { AttendanceDevicesModule } from './modules/attendance-devices/attendance-devices.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CrmModule } from './modules/crm/crm.module';
@@ -36,6 +37,7 @@ import { SystemModule } from './modules/system/system.module';
       },
     ]),
     PrismaModule,
+    AttendanceDevicesModule,
     AuditLogsModule,
     PermissionsModule,
     LicenseModule,

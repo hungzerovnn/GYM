@@ -8,6 +8,8 @@ const statusLikeKeys = new Set([
   "attendanceStatus",
   "connectionStatus",
   "followUpState",
+  "presenceStatus",
+  "currentShiftStatus",
   "urgency",
   "priority",
   "eventType",

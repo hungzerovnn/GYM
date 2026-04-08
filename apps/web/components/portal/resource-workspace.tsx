@@ -57,6 +57,8 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
   const [deleting, setDeleting] = useState<Record<string, unknown> | null>(null);
   const [creating, setCreating] = useState(false);
   const printProfile = resolveResourcePrintProfile(localizedResource);
+  const detailConfig = getResourceDetailConfig(resource);
+  const canPrintRows = Boolean(printProfile || detailConfig);
   const createLabel = localizedResource.createLabel || translateText("Create");
   const filterSubtitle = useMemo(() => resolveResourceFilterSubtitle(localizedResource.filters), [localizedResource.filters]);
   const appliedFilters = useMemo(
@@ -66,6 +68,20 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
   const canViewResource = !localizedResource.permissionPrefix || user?.permissions.includes(`${localizedResource.permissionPrefix}.view`);
   const canViewSettings = user?.permissions.includes("settings.view");
   const visibleFilterNames = useMemo(() => new Set(localizedResource.filters.map((filter) => filter.name)), [localizedResource.filters]);
+  const canCreateResource =
+    localizedResource.allowCreate !== false &&
+    localizedResource.fields.length > 0 &&
+    (!localizedResource.permissionPrefix ||
+      user?.permissions.includes(`${localizedResource.permissionPrefix}.create`));
+  const canEditResource =
+    localizedResource.allowEdit !== false &&
+    localizedResource.fields.length > 0 &&
+    (!localizedResource.permissionPrefix ||
+      user?.permissions.includes(`${localizedResource.permissionPrefix}.update`));
+  const canDeleteResource =
+    localizedResource.allowDelete !== false &&
+    (!localizedResource.permissionPrefix ||
+      user?.permissions.includes(`${localizedResource.permissionPrefix}.delete`));
 
   const queryKey = useMemo(() => [localizedResource.key, search, appliedFilters], [appliedFilters, localizedResource.key, search]);
   const listQuery = useQuery({
@@ -138,9 +154,8 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
   };
 
   const handlePrintRow = async (row: Record<string, unknown>) => {
-    if (!printProfile) return;
+    if (!canPrintRows) return;
 
-    const detailConfig = getResourceDetailConfig(resource);
     let record = row;
 
     if (detailConfig && row.id) {
@@ -159,7 +174,7 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
       record,
       filters: printFilters,
       template: printTemplateQuery.data,
-      profile: printProfile,
+      profile: printProfile || undefined,
     });
   };
 
@@ -182,7 +197,7 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
                 {translateText("In danh sach")}
               </button>
             ) : null}
-            {localizedResource.fields.length ? (
+            {canCreateResource ? (
               <PermissionGate permission={`${localizedResource.permissionPrefix}.create`}>
                 <button className="primary-button" onClick={() => setCreating(true)} type="button">
                   <Plus className="h-4 w-4" />
@@ -214,9 +229,9 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
           ) : rows.length ? (
             <SmartDataTable
               columns={localizedResource.columns}
-              onDelete={(row) => setDeleting(row)}
-              onEdit={(row) => setEditing(row)}
-              onPrint={printProfile ? handlePrintRow : undefined}
+              onDelete={canDeleteResource ? (row) => setDeleting(row) : undefined}
+              onEdit={canEditResource ? (row) => setEditing(row) : undefined}
+              onPrint={canPrintRows ? handlePrintRow : undefined}
               onView={(row) => setSelected(row)}
               rows={rows}
             />
@@ -229,25 +244,29 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
         </div>
       </div>
 
-      <FormDialog
-        definition={localizedResource}
-        endpoint={localizedResource.endpoint}
-        initialValues={null}
-        onClose={() => setCreating(false)}
-        open={creating}
-        queryKey={localizedResource.key}
-        title={`${createLabel} ${localizedResource.title}`}
-      />
+      {canCreateResource ? (
+        <FormDialog
+          definition={localizedResource}
+          endpoint={localizedResource.endpoint}
+          initialValues={null}
+          onClose={() => setCreating(false)}
+          open={creating}
+          queryKey={localizedResource.key}
+          title={`${createLabel} ${localizedResource.title}`}
+        />
+      ) : null}
 
-      <FormDialog
-        definition={localizedResource}
-        endpoint={localizedResource.endpoint}
-        initialValues={editing}
-        onClose={() => setEditing(null)}
-        open={Boolean(editing)}
-        queryKey={localizedResource.key}
-        title={`${translateText("Edit")} ${translateText(localizedResource.title)}`}
-      />
+      {canEditResource ? (
+        <FormDialog
+          definition={localizedResource}
+          endpoint={localizedResource.endpoint}
+          initialValues={editing}
+          onClose={() => setEditing(null)}
+          open={Boolean(editing)}
+          queryKey={localizedResource.key}
+          title={`${translateText("Edit")} ${translateText(localizedResource.title)}`}
+        />
+      ) : null}
 
       <ResourceDetailDrawer
         onClose={() => setSelected(null)}
@@ -258,13 +277,15 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
         selected={selected}
       />
 
-      <ConfirmDialog
-        description={`${translateText("Xoa")} ${translateText(localizedResource.title).toLowerCase()} "${resolveTextDisplay(deleting?.code || deleting?.name || deleting?.fullName)}"?`}
-        onCancel={() => setDeleting(null)}
-        onConfirm={() => void deleteMutation.mutateAsync(String(deleting?.id))}
-        open={Boolean(deleting)}
-        title={translateText("Confirm deletion")}
-      />
+      {canDeleteResource ? (
+        <ConfirmDialog
+          description={`${translateText("Xoa")} ${translateText(localizedResource.title).toLowerCase()} "${resolveTextDisplay(deleting?.code || deleting?.name || deleting?.fullName)}"?`}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => void deleteMutation.mutateAsync(String(deleting?.id))}
+          open={Boolean(deleting)}
+          title={translateText("Confirm deletion")}
+        />
+      ) : null}
     </div>
   );
 }

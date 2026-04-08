@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { platform } from 'os';
 import { AuditAction, Prisma } from '@prisma/client';
+import { defaultSystemProfile } from '../../common/constants/bootstrap.constants';
 import { QueryDto } from '../../common/dto/query.dto';
 import { AuthUser } from '../../common/types/auth-user.type';
 import {
@@ -23,6 +27,7 @@ import {
 } from './settings.dto';
 
 const REDACTED_VALUE = '***REDACTED***';
+const execFileAsync = promisify(execFile);
 
 const scopedJsonSettings = {
   company: {
@@ -93,6 +98,7 @@ const scopedJsonSettings = {
     group: 'templates',
     key: 'print_templates',
     defaults: {
+      printerMode: 'BROWSER_DIALOG',
       contractHeader: '',
       receiptHeader: '',
       receiptFooter: '',
@@ -103,7 +109,13 @@ const scopedJsonSettings = {
       returnHeader: '',
       returnFooter: '',
       defaultPrinterName: '',
+      printerIpAddress: '',
+      printerPort: 9100,
+      printerProtocol: 'RAW_9100',
+      printerQueueName: '',
+      printerDriverHint: '',
       paperSize: 'A4',
+      paperOrientation: 'PORTRAIT',
       showLogo: true,
       showSignature: true,
       note: '',
@@ -250,6 +262,126 @@ export class SettingsService {
 
     const normalized = value.trim();
     return normalized || undefined;
+  }
+
+  async listSystemPrinters() {
+    if (platform() !== 'win32') {
+      return [];
+    }
+
+    const command = [
+      '$printers = Get-CimInstance Win32_Printer |',
+      'Select-Object Name, PortName, DriverName, Default, WorkOffline, PrinterStatus;',
+      '$printers | ConvertTo-Json -Depth 3',
+    ].join(' ');
+
+    try {
+      const { stdout } = await execFileAsync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command],
+        { windowsHide: true, maxBuffer: 1024 * 1024 * 8 },
+      );
+
+      const parsed = JSON.parse(stdout || '[]');
+      const printers = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+
+      return printers.map((printer: Record<string, unknown>) => {
+        const name = String(printer.Name || '').trim();
+        const portName = String(printer.PortName || '').trim();
+        const driverName = String(printer.DriverName || '').trim();
+        const isDefault = Boolean(printer.Default);
+        const isOffline = Boolean(printer.WorkOffline);
+        const statusCode = Number(printer.PrinterStatus || 0);
+        const statusLabel =
+          statusCode === 3
+            ? 'Idle'
+            : statusCode === 4
+              ? 'Printing'
+              : statusCode === 5
+                ? 'Warmup'
+                : statusCode === 7
+                  ? 'Offline'
+                  : statusCode === 1
+                    ? 'Other'
+                    : 'Unknown';
+
+        return {
+          name,
+          portName,
+          driverName,
+          isDefault,
+          isOffline,
+          statusCode,
+          statusLabel,
+          displayName: `${name}${isDefault ? ' (Default)' : ''}${portName ? ` - ${portName}` : ''}`,
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  async listPrinterPaperSizes(printerName: string) {
+    if (platform() !== 'win32') {
+      return [];
+    }
+
+    const normalizedPrinterName = String(printerName || '').trim();
+    if (!normalizedPrinterName) {
+      return [];
+    }
+
+    const escapedPrinterName = normalizedPrinterName.replace(/'/g, "''");
+    const command = [
+      'Add-Type -AssemblyName System.Drawing;',
+      `$printer = '${escapedPrinterName}';`,
+      '$settings = New-Object System.Drawing.Printing.PrinterSettings;',
+      '$settings.PrinterName = $printer;',
+      '$settings.PaperSizes | Select-Object PaperName, Kind, Width, Height | ConvertTo-Json -Depth 3',
+    ].join(' ');
+
+    try {
+      const { stdout } = await execFileAsync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command],
+        { windowsHide: true, maxBuffer: 1024 * 1024 * 8 },
+      );
+
+      const parsed = JSON.parse(stdout || '[]');
+      const paperSizes = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+      const seen = new Set<string>();
+
+      return paperSizes
+        .map((paper: Record<string, unknown>) => {
+          const name = String(paper.PaperName || '').trim();
+          const width = Number(paper.Width || 0);
+          const height = Number(paper.Height || 0);
+          const kind = Number(paper.Kind || 0);
+
+          return {
+            name,
+            width,
+            height,
+            kind,
+            displayName:
+              name ||
+              (width && height
+                ? `${Math.round((width / 100) * 25.4)} x ${Math.round((height / 100) * 25.4)} mm`
+                : ''),
+          };
+        })
+        .filter((paper) => paper.displayName)
+        .filter((paper) => {
+          const dedupeKey = `${paper.name}|${paper.width}|${paper.height}`;
+          if (seen.has(dedupeKey)) {
+            return false;
+          }
+          seen.add(dedupeKey);
+          return true;
+        });
+    } catch {
+      return [];
+    }
   }
 
   private sanitizeSensitiveData<T>(value: T): T {
@@ -881,6 +1013,7 @@ export class SettingsService {
     });
 
     return {
+      ...defaultSystemProfile,
       ...this.asObject(setting?.value),
       settingId: setting?.id || null,
       createdAt: setting?.createdAt || null,

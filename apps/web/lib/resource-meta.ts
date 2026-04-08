@@ -72,6 +72,14 @@ export const resourceDetailConfigs: Record<
     detailEndpoint: (id) => `/attendance-machines/${id}`,
     entityType: "attendance_machine",
   },
+  "staff-shifts": {
+    detailEndpoint: (id) => `/staff-shifts/${id}`,
+    entityType: "staff_shift",
+  },
+  "staff-shift-assignments": {
+    detailEndpoint: (id) => `/staff-shift-assignments/${id}`,
+    entityType: "staff_shift_assignment",
+  },
   products: {
     detailEndpoint: (id) => `/products/${id}`,
     entityType: "product",
@@ -107,6 +115,10 @@ export const resourceDetailConfigs: Record<
   "staff-attendance-events": {
     detailEndpoint: (id) => `/staff-attendance-events/${id}`,
     entityType: "staff_attendance_event",
+  },
+  "member-presence": {
+    detailEndpoint: (id) => `/member-presence/${id}`,
+    entityType: "member_presence_session",
   },
 };
 

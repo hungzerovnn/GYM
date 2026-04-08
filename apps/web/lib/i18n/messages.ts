@@ -87,6 +87,161 @@ const supplementalWholePortalAuditPhraseEntries: PhraseEntry[] = [
 ];
 
 const supplementalExactTextDeep = {
+  "Tai / xoa toan bo log tren may": {
+    vi: "Táº£i / xÃ³a toÃ n bá»™ log trÃªn mÃ¡y",
+    en: "Download / delete all logs on device",
+    ko: "ìž¥ë¹„ ì „ì²´ ë¡œê·¸ ë‹¤ìš´ë¡œë“œ / ì‚­ì œ",
+  },
+  "Neu may khong ho tro xoa theo moc thoi gian, hay tai toan bo log ve may tinh truoc roi moi xoa toan bo log tren may de giai phong bo nho.": {
+    vi: "Náº¿u mÃ¡y khÃ´ng há»— trá»£ xÃ³a theo má»‘c thá»i gian, hÃ£y táº£i toÃ n bá»™ log vá» mÃ¡y tÃ­nh trÆ°á»›c rá»“i má»›i xÃ³a toÃ n bá»™ log trÃªn mÃ¡y Ä‘á»ƒ giáº£i phÃ³ng bá»™ nhá»›.",
+    en: "If the device does not support deleting by date range, download all logs to the computer first, then clear all logs on the device to free storage.",
+    ko: "ìž¥ë¹„ê°€ ê¸°ê°„ë³„ ì‚­ì œë¥¼ ì§€ì›í•˜ì§€ ì•ŠëŠ” ê²½ìš°, ë¨¼ì € ì „ì²´ ë¡œê·¸ë¥¼ PCë¡œ ë‚´ë ¤ë°›ì€ ë’¤ ì €ìž¥ ê³µê°„ í™•ë³´ë¥¼ ìœ„í•´ ìž¥ë¹„ì˜ ë¡œê·¸ë¥¼ ì „ë¶€ ì‚­ì œí•˜ì„¸ìš”.",
+  },
+  "Tai toan bo log tren may": {
+    vi: "Táº£i toÃ n bá»™ log trÃªn mÃ¡y",
+    en: "Download all logs on device",
+    ko: "ìž¥ë¹„ ì „ì²´ ë¡œê·¸ ë‹¤ìš´ë¡œë“œ",
+  },
+  "__removed_duplicate_xoa_toan_bo_log_tren_may__": {
+    vi: "XÃ³a toÃ n bá»™ log trÃªn mÃ¡y",
+    en: "Delete all logs on device",
+    ko: "ìž¥ë¹„ ì „ì²´ ë¡œê·¸ ì‚­ì œ",
+  },
+  "Ban co chac muon xoa toan bo log tren may cham cong? Du lieu sau khi xoa se khong the phuc hoi tren thiet bi.": {
+    vi: "Báº¡n cÃ³ cháº¯c muá»‘n xÃ³a toÃ n bá»™ log trÃªn mÃ¡y cháº¥m cÃ´ng? Dá»¯ liá»‡u sau khi xÃ³a sáº½ khÃ´ng thá»ƒ phá»¥c há»“i trÃªn thiáº¿t bá»‹.",
+    en: "Are you sure you want to delete all logs on the attendance device? Deleted data cannot be restored on the device.",
+    ko: "ê·¼íƒœ ìž¥ë¹„ì˜ ì „ì²´ ë¡œê·¸ë¥¼ ì‚­ì œí•˜ì‹œê² ìŠµë‹ˆê¹Œ? ì‚­ì œ í›„ì—ëŠ” ìž¥ë¹„ì—ì„œ ë°ì´í„°ë¥¼ ë³µêµ¬í•  ìˆ˜ ì—†ìŠµë‹ˆë‹¤.",
+  },
+  "Da tai toan bo log tren may ve may tinh.": {
+    vi: "ÄÃ£ táº£i toÃ n bá»™ log trÃªn mÃ¡y vá» mÃ¡y tÃ­nh.",
+    en: "All device logs have been downloaded to the computer.",
+    ko: "ìž¥ë¹„ì˜ ì „ì²´ ë¡œê·¸ê°€ PCë¡œ ë‹¤ìš´ë¡œë“œë˜ì—ˆìŠµë‹ˆë‹¤.",
+  },
+  "Da xu ly thao tac xoa toan bo log tren may.": {
+    vi: "ÄÃ£ xá»­ lÃ½ thao tÃ¡c xÃ³a toÃ n bá»™ log trÃªn mÃ¡y.",
+    en: "The delete-all device logs action has been processed.",
+    ko: "ìž¥ë¹„ ì „ì²´ ë¡œê·¸ ì‚­ì œ ìž‘ì—…ì„ ì²˜ë¦¬í–ˆìŠµë‹ˆë‹¤.",
+  },
+  "Dang tai file...": {
+    vi: "Äang táº£i file...",
+    en: "Preparing download...",
+    ko: "íŒŒì¼ ë‹¤ìš´ë¡œë“œ ì¤€ë¹„ ì¤‘...",
+  },
+  "Doc toan bo log raw dang con tren may va tai ve may tinh. Thao tac nay khong import du lieu vao he thong.": {
+    vi: "Äá»c toÃ n bá»™ log raw Ä‘ang cÃ²n trÃªn mÃ¡y vÃ  táº£i vá» mÃ¡y tÃ­nh. Thao tÃ¡c nÃ y khÃ´ng import dá»¯ liá»‡u vÃ o há»‡ thá»‘ng.",
+    en: "Read all raw logs still stored on the device and download them to the computer. This action does not import data into the system.",
+    ko: "ìž¥ë¹„ì— ë‚¨ì•„ ìžˆëŠ” ì›ë³¸ ë¡œê·¸ ì „ì²´ë¥¼ ì½ì–´ PCë¡œ ë‚´ë ¤ë°›ìŠµë‹ˆë‹¤. ì´ ìž‘ì—…ì€ ì‹œìŠ¤í…œìœ¼ë¡œ ë°ì´í„°ë¥¼ ê°€ì ¸ì˜¤ì§€ ì•ŠìŠµë‹ˆë‹¤.",
+  },
+  "Da clear toan bo attendance log tren may ZK. Nen tai file doi soat truoc neu can luu tru offline.": {
+    vi: "ÄÃ£ clear toÃ n bá»™ attendance log trÃªn mÃ¡y ZK. NÃªn táº£i file Ä‘á»‘i soÃ¡t trÆ°á»›c náº¿u cáº§n lÆ°u trá»¯ offline.",
+    en: "All attendance logs on the ZK device have been cleared. Download a reconciliation file first if you need an offline archive.",
+    ko: "ZK ìž¥ë¹„ì˜ ì „ì²´ ê·¼íƒœ ë¡œê·¸ê°€ ì‚­ì œë˜ì—ˆìŠµë‹ˆë‹¤. ì˜¤í”„ë¼ì¸ ë³´ê´€ì´ í•„ìš”í•˜ë©´ ë¨¼ì € ëŒ€ì‚¬ìš© íŒŒì¼ì„ ë‹¤ìš´ë¡œë“œí•˜ì„¸ìš”.",
+  },
+  "Connector hien tai chua ho tro xoa toan bo log tren may cham cong.": {
+    vi: "Connector hiá»‡n táº¡i chÆ°a há»— trá»£ xÃ³a toÃ n bá»™ log trÃªn mÃ¡y cháº¥m cÃ´ng.",
+    en: "The current connector does not yet support deleting all logs on the attendance device.",
+    ko: "í˜„ìž¬ ì»¤ë„¥í„°ëŠ” ê·¼íƒœ ìž¥ë¹„ì˜ ì „ì²´ ë¡œê·¸ ì‚­ì œë¥¼ ì§€ì›í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤.",
+  },
+  "Pham vi thao tac": {
+    vi: "Pháº¡m vi thao tÃ¡c",
+    en: "Operation scope",
+    ko: "ìž‘ì—… ë²”ìœ„",
+  },
+  "Toan bo log tren may": {
+    vi: "ToÃ n bá»™ log trÃªn mÃ¡y",
+    en: "All logs on device",
+    ko: "ìž¥ë¹„ ì „ì²´ ë¡œê·¸",
+  },
+  "Tai / xoa du lieu tren may theo moc thoi gian": {
+    vi: "Tải / xóa dữ liệu trên máy theo mốc thời gian",
+    en: "Download / delete device data by date range",
+    ko: "기간별 장비 데이터 다운로드 / 삭제",
+  },
+  "Khung nay chi lam viec voi log dang nam tren may cham cong. Khac voi nut 'Tai du lieu cham cong ve he thong', thao tac nay dung de tai file doi soat hoac giai phong bo nho tren may.": {
+    vi: "Khung này chỉ làm việc với log đang nằm trên máy chấm công. Khác với nút 'Tải dữ liệu chấm công về hệ thống', thao tác này dùng để tải file đối soát hoặc giải phóng bộ nhớ trên máy.",
+    en: "This section only works with logs currently stored on the attendance device. Unlike 'Pull attendance data into the system', it is used to download a reconciliation file or free device storage.",
+    ko: "이 섹션은 현재 근태 장비에 저장된 로그만 다룹니다. '출결 데이터를 시스템으로 가져오기'와 달리, 대사용 파일을 내려받거나 장비 저장 공간을 비우는 데 사용됩니다.",
+  },
+  "He thong se gioi han theo ngay bat dau va ngay ket thuc ban chon. Xoa log chi duoc phep khi may ho tro xoa dung pham vi hoac khoang ngay da bao trum toan bo log hien co tren may.": {
+    vi: "Hệ thống sẽ giới hạn theo ngày bắt đầu và ngày kết thúc bạn chọn. Xóa log chỉ được phép khi máy hỗ trợ xóa đúng phạm vi hoặc khoảng ngày đã bao trùm toàn bộ log hiện có trên máy.",
+    en: "The system limits the action to the selected start and end dates. Log deletion is allowed only when the device supports in-range deletion or the selected range covers all logs currently stored on the device.",
+    ko: "시스템은 선택한 시작일과 종료일 범위로 작업을 제한합니다. 로그 삭제는 장비가 범위 삭제를 지원하거나 선택한 기간이 장비의 전체 로그를 모두 포함할 때만 허용됩니다.",
+  },
+  "Tai du lieu tu may ve may tinh": {
+    vi: "Tải dữ liệu từ máy về máy tính",
+    en: "Download device data to computer",
+    ko: "장비 데이터를 PC로 다운로드",
+  },
+  "Xoa du lieu tren may": {
+    vi: "Xóa dữ liệu trên máy",
+    en: "Delete data on device",
+    ko: "장비 데이터 삭제",
+  },
+  "Tai du lieu tren may theo moc thoi gian": {
+    vi: "Tải dữ liệu trên máy theo mốc thời gian",
+    en: "Download device data by date range",
+    ko: "기간별 장비 데이터 다운로드",
+  },
+  "Doc log raw tren may trong khoang ngay da chon va tai ve may tinh. Thao tac nay khong import du lieu vao he thong.": {
+    vi: "Đọc log raw trên máy trong khoảng ngày đã chọn và tải về máy tính. Thao tác này không import dữ liệu vào hệ thống.",
+    en: "Read raw logs from the device within the selected date range and download them to the computer. This action does not import data into the system.",
+    ko: "선택한 기간의 장비 원본 로그를 읽어 PC로 내려받습니다. 이 작업은 시스템으로 데이터를 가져오지 않습니다.",
+  },
+  "Xoa du lieu tren may theo moc thoi gian": {
+    vi: "Xóa dữ liệu trên máy theo mốc thời gian",
+    en: "Delete device data by date range",
+    ko: "기간별 장비 데이터 삭제",
+  },
+  "Da tai du lieu tren may theo moc thoi gian ve may tinh.": {
+    vi: "Đã tải dữ liệu trên máy theo mốc thời gian về máy tính.",
+    en: "Device data for the selected date range has been downloaded to the computer.",
+    ko: "선택한 기간의 장비 데이터가 PC로 다운로드되었습니다.",
+  },
+  "Da xu ly thao tac xoa du lieu tren may theo moc thoi gian.": {
+    vi: "Đã xử lý thao tác xóa dữ liệu trên máy theo mốc thời gian.",
+    en: "The device data deletion action for the selected date range has been processed.",
+    ko: "선택한 기간의 장비 데이터 삭제 작업을 처리했습니다.",
+  },
+  "Can chon day du tu ngay va den ngay cho khoang du lieu may cham cong.": {
+    vi: "Cần chọn đầy đủ từ ngày và đến ngày cho khoảng dữ liệu máy chấm công.",
+    en: "Please select both the start date and end date for the attendance device data range.",
+    ko: "근태 장비 데이터 범위의 시작일과 종료일을 모두 선택해야 합니다.",
+  },
+  "Tu ngay khong duoc lon hon den ngay.": {
+    vi: "Từ ngày không được lớn hơn đến ngày.",
+    en: "The start date cannot be later than the end date.",
+    ko: "시작일은 종료일보다 늦을 수 없습니다.",
+  },
+  "Khoang du lieu": {
+    vi: "Khoảng dữ liệu",
+    en: "Data range",
+    ko: "데이터 범위",
+  },
+  "Tong log tren may": {
+    vi: "Tổng log trên máy",
+    en: "Total logs on device",
+    ko: "장비 전체 로그 수",
+  },
+  "Con lai sau khi xoa": {
+    vi: "Còn lại sau khi xóa",
+    en: "Remaining after deletion",
+    ko: "삭제 후 남은 수",
+  },
+  "Cach xoa": {
+    vi: "Cách xóa",
+    en: "Deletion method",
+    ko: "삭제 방식",
+  },
+  "Da xoa": {
+    vi: "Đã xóa",
+    en: "Deleted",
+    ko: "삭제됨",
+  },
+  "Xoa toan bo log tren may": {
+    vi: "Xóa toàn bộ log trên máy",
+    en: "Clear all logs on device",
+    ko: "장비 전체 로그 삭제",
+  },
   line: { vi: "line", en: "line", ko: "라인" },
   "Nhom lop": { vi: "Nhóm lớp", en: "Class group", ko: "수업 그룹" },
   "Ma line": { vi: "Mã line", en: "Line code", ko: "라인 코드" },
@@ -4295,6 +4450,100 @@ const phraseEntries = sanitizePhraseEntries([
   ...supplementalWholePortalAuditPhraseEntries,
 ]);
 
+const supplementalShiftAssignmentExactText = {
+  "Danh sách ca làm": { vi: "Danh sách ca làm", en: "Shift list", ko: "근무조 목록" },
+  "Danh mục ca, giờ vào/ra, nghỉ giữa ca, OT, ca qua đêm và các tham số trễ / về sớm.": {
+    vi: "Danh mục ca, giờ vào/ra, nghỉ giữa ca, OT, ca qua đêm và các tham số trễ / về sớm.",
+    en: "Shift catalog with check-in/out times, breaks, OT, overnight shifts, and late / early-leave rules.",
+    ko: "출근/퇴근 시간, 휴게시간, OT, 야간조와 지각/조기퇴근 기준을 포함한 근무조 목록입니다.",
+  },
+  "Danh mục ca, giờ vào/ra, trễ, về sớm, OT và ca qua đêm.": {
+    vi: "Danh mục ca, giờ vào/ra, trễ, về sớm, OT và ca qua đêm.",
+    en: "Shift catalog with check-in/out times, late/early tolerances, OT, and overnight shifts.",
+    ko: "출근/퇴근 시간, 지각/조기퇴근 허용, OT와 야간조를 포함한 근무조 목록입니다.",
+  },
+  "Phân ca nhân viên": { vi: "Phân ca nhân viên", en: "Staff shift assignments", ko: "직원 근무조 배정" },
+  "Gán ca cố định / ca xoay cho nhân viên và theo dõi trạng thái đang làm.": {
+    vi: "Gán ca cố định / ca xoay cho nhân viên và theo dõi trạng thái đang làm.",
+    en: "Assign fixed or rotating shifts to staff and track their current working status.",
+    ko: "직원에게 고정조/순환조를 배정하고 현재 근무 상태를 추적합니다.",
+  },
+  "Gán ca cố định / ca xoay cho nhân viên, hỗ trợ không thời hạn và đối soát trạng thái đang làm.": {
+    vi: "Gán ca cố định / ca xoay cho nhân viên, hỗ trợ không thời hạn và đối soát trạng thái đang làm.",
+    en: "Assign fixed or rotating shifts to staff, with unlimited rotation support and live status review.",
+    ko: "직원에게 고정조/순환조를 배정하고, 무기한 순환과 현재 근무 상태를 함께 관리합니다.",
+  },
+  "Tìm nhân viên, mã phân ca, mã ca": {
+    vi: "Tìm nhân viên, mã phân ca, mã ca",
+    en: "Search staff, assignment code, shift code",
+    ko: "직원, 배정 코드, 근무조 코드를 검색",
+  },
+  "Lịch ca": { vi: "Lịch ca", en: "Shift pattern", ko: "근무 패턴" },
+  "Kiểu phân ca": { vi: "Kiểu phân ca", en: "Assignment type", ko: "배정 유형" },
+  "Chu kỳ xoay": { vi: "Chu kỳ xoay", en: "Rotation cycle", ko: "순환 주기" },
+  "Hiệu lực": { vi: "Hiệu lực", en: "Effective range", ko: "적용 기간" },
+  "Ca hiện tại": { vi: "Ca hiện tại", en: "Current shift", ko: "현재 근무조" },
+  "Mã phân ca": { vi: "Mã phân ca", en: "Assignment code", ko: "배정 코드" },
+  "Tên phân ca": { vi: "Tên phân ca", en: "Assignment name", ko: "배정 이름" },
+  "Danh sách ca": { vi: "Danh sách ca", en: "Shift list", ko: "근무조 목록" },
+  "Tự động lấy theo ca đã chọn": {
+    vi: "Tự động lấy theo ca đã chọn",
+    en: "Auto-filled from selected shifts",
+    ko: "선택한 근무조에 따라 자동 입력",
+  },
+  "Chu kỳ xoay ca (ngày)": { vi: "Chu kỳ xoay ca (ngày)", en: "Rotation cycle (days)", ko: "순환 주기(일)" },
+  "Ca xoay không thời hạn": { vi: "Ca xoay không thời hạn", en: "Unlimited rotation", ko: "무기한 순환" },
+  "Đã chọn": { vi: "Đã chọn", en: "Selected", ko: "선택됨" },
+  "Bỏ chọn": { vi: "Bỏ chọn", en: "Clear", ko: "선택 해제" },
+  "Chọn tất cả": { vi: "Chọn tất cả", en: "Select all", ko: "전체 선택" },
+  "Chọn tất cả nhân viên": { vi: "Chọn tất cả nhân viên", en: "Select all staff", ko: "직원 전체 선택" },
+  "Chọn tất cả ca": { vi: "Chọn tất cả ca", en: "Select all shifts", ko: "근무조 전체 선택" },
+  "Chọn nhanh danh sách bên dưới hoặc bấm Chọn tất cả.": {
+    vi: "Chọn nhanh danh sách bên dưới hoặc bấm Chọn tất cả.",
+    en: "Quick-pick from the list below or click Select all.",
+    ko: "아래 목록에서 빠르게 선택하거나 전체 선택을 누르세요.",
+  },
+  "Chọn nhanh một hoặc nhiều nhân viên, hoặc bấm Chọn tất cả để phân đồng loạt.": {
+    vi: "Chọn nhanh một hoặc nhiều nhân viên, hoặc bấm Chọn tất cả để phân đồng loạt.",
+    en: "Quick-pick one or more staff members, or click Select all for bulk assignment.",
+    ko: "한 명 또는 여러 직원을 빠르게 선택하거나, 전체 선택으로 일괄 배정하세요.",
+  },
+  "Chọn nhanh một ca, nhiều ca hoặc bấm Chọn tất cả để tạo lịch xoay.": {
+    vi: "Chọn nhanh một ca, nhiều ca hoặc bấm Chọn tất cả để tạo lịch xoay.",
+    en: "Quick-pick one or many shifts, or click Select all to build a rotating schedule.",
+    ko: "한 개 또는 여러 근무조를 빠르게 선택하거나, 전체 선택으로 순환 일정을 만드세요.",
+  },
+  "Tìm nhân viên cần phân ca": {
+    vi: "Tìm nhân viên cần phân ca",
+    en: "Search staff to assign shifts",
+    ko: "배정할 직원을 검색",
+  },
+  "Tìm mã ca, tên ca, giờ ca": {
+    vi: "Tìm mã ca, tên ca, giờ ca",
+    en: "Search shift code, shift name, shift hours",
+    ko: "근무조 코드, 이름, 시간을 검색",
+  },
+  "Tất cả ca": { vi: "Tất cả ca", en: "All shifts", ko: "전체 근무조" },
+  "Lịch xoay": { vi: "Lịch xoay", en: "Rotating schedule", ko: "순환 일정" },
+  "Đã bật ca xoay không thời hạn nên chu kỳ xoay được khóa.": {
+    vi: "Đã bật ca xoay không thời hạn nên chu kỳ xoay được khóa.",
+    en: "Unlimited rotation is enabled, so the rotation cycle is locked.",
+    ko: "무기한 순환이 활성화되어 순환 주기가 잠겨 있습니다.",
+  },
+  "Nhập từ khóa cần tìm": {
+    vi: "Nhập từ khóa cần tìm",
+    en: "Enter a search keyword",
+    ko: "검색어를 입력하세요",
+  },
+  "Chưa có dữ liệu để lựa chọn.": {
+    vi: "Chưa có dữ liệu để lựa chọn.",
+    en: "No data available to select.",
+    ko: "선택할 데이터가 없습니다.",
+  },
+  "Trong ngày": { vi: "Trong ngày", en: "Same day", ko: "당일" },
+  "Ca qua đêm": { vi: "Ca qua đêm", en: "Overnight shift", ko: "야간 근무조" },
+};
+
 const exactText = sanitizeLocalizedRecord({
   ...baseExactText,
   ...supplementalExactText,
@@ -4310,6 +4559,7 @@ const exactText = sanitizeLocalizedRecord({
   ...supplementalReportLocaleSweepExactText,
   ...supplementalWholePortalAuditExactText,
   ...supplementalFullAppAuditExactText,
+  ...supplementalShiftAssignmentExactText,
 });
 
 const statuses = {

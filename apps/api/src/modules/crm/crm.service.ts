@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AuditAction, Prisma } from '@prisma/client';
+import { AuditAction, MemberPresenceSource, MemberPresenceStatus, Prisma } from '@prisma/client';
+import { addDays, differenceInMinutes, endOfDay, startOfDay } from 'date-fns';
 import { QueryDto } from '../../common/dto/query.dto';
 import { AuthUser } from '../../common/types/auth-user.type';
 import {
@@ -16,6 +17,7 @@ import {
   CreateCustomerSourceDto,
   CreateLeadDto,
   CreateLeadLogDto,
+  ToggleMemberPresenceDto,
   UpdateCustomerDto,
   UpdateCustomerGroupDto,
   UpdateCustomerSourceDto,
@@ -63,6 +65,170 @@ export class CrmService {
   private normalizeAttendanceCode(value?: string | null) {
     const normalized = value?.trim().toUpperCase();
     return normalized || undefined;
+  }
+
+  private resolveMemberPresenceCutoff(session: {
+    checkInAt: Date;
+    graceHours?: number | null;
+  }) {
+    const nextDayStart = startOfDay(addDays(session.checkInAt, 1));
+    const graceHours = Math.max(0, Number(session.graceHours || 6));
+    return new Date(nextDayStart.getTime() + graceHours * 3_600_000);
+  }
+
+  private async getMemberPresenceGraceHours() {
+    const setting = await this.prisma.appSetting.findFirst({
+      where: {
+        group: 'general',
+        key: 'system_profile',
+      },
+      select: {
+        value: true,
+      },
+    });
+
+    const payload =
+      setting?.value &&
+      !Array.isArray(setting.value) &&
+      typeof setting.value === 'object'
+        ? (setting.value as Record<string, unknown>)
+        : {};
+    const rawValue = Number(payload.memberPresenceOvernightGraceHours || 6);
+    if (Number.isNaN(rawValue)) {
+      return 6;
+    }
+
+    return Math.min(Math.max(Math.round(rawValue), 0), 24);
+  }
+
+  private async autoCloseExpiredMemberPresenceSessions(scope?: {
+    branchId?: string;
+    customerId?: string;
+  }) {
+    const now = new Date();
+    const activeSessions = await this.prisma.memberPresenceSession.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...(scope?.branchId ? { branchId: scope.branchId } : {}),
+        ...(scope?.customerId ? { customerId: scope.customerId } : {}),
+      },
+      select: {
+        id: true,
+        checkInAt: true,
+        graceHours: true,
+      },
+    });
+
+    const expiredSessions = activeSessions
+      .map((session) => ({
+        id: session.id,
+        cutoffAt: this.resolveMemberPresenceCutoff(session),
+      }))
+      .filter((session) => session.cutoffAt.getTime() <= now.getTime());
+
+    if (!expiredSessions.length) {
+      return 0;
+    }
+
+    await this.prisma.$transaction(
+      expiredSessions.map((session) =>
+        this.prisma.memberPresenceSession.update({
+          where: { id: session.id },
+          data: {
+            status: MemberPresenceStatus.AUTO_CLOSED,
+            checkOutAt: session.cutoffAt,
+            autoClosedAt: session.cutoffAt,
+          },
+        }),
+      ),
+    );
+
+    return expiredSessions.length;
+  }
+
+  private mapMemberPresenceRecord(customer: any, sessions: any[]) {
+    const sortedSessions = [...sessions].sort(
+      (left, right) =>
+        right.checkInAt.getTime() - left.checkInAt.getTime() ||
+        right.createdAt.getTime() - left.createdAt.getTime(),
+    );
+    const activeSession =
+      sortedSessions.find(
+        (session) =>
+          session.status === MemberPresenceStatus.ACTIVE && !session.checkOutAt,
+      ) || null;
+    const latestSession = sortedSessions[0] || null;
+    const presenceStatus = activeSession
+      ? 'ACTIVE'
+      : latestSession?.status || 'NEVER_CHECKED_IN';
+    const currentSessionDurationMinutes = activeSession
+      ? Math.max(differenceInMinutes(new Date(), activeSession.checkInAt), 0)
+      : 0;
+    const nextAutoCloseAt = activeSession
+      ? this.resolveMemberPresenceCutoff(activeSession)
+      : null;
+
+    return {
+      id: customer.id,
+      customerId: customer.id,
+      code: customer.code,
+      fullName: customer.fullName,
+      customerInfo: customer.fullName,
+      avatarUrl: customer.avatarUrl || '',
+      phone: customer.phone || '',
+      branchId: customer.branchId,
+      branchName: customer.branch?.name || '',
+      membershipStatus: customer.membershipStatus,
+      attendanceCode:
+        this.normalizeAttendanceCode(customer.fingerprintCode) || customer.code,
+      customerCardNumber: customer.customerCardNumber || '',
+      presenceStatus,
+      currentSessionId: activeSession?.id || '',
+      currentSessionStartedAt: activeSession?.checkInAt?.toISOString() || '',
+      currentSessionDurationMinutes,
+      currentSessionDurationLabel: activeSession
+        ? `${currentSessionDurationMinutes} phut`
+        : '',
+      nextAutoCloseAt: nextAutoCloseAt?.toISOString() || '',
+      lastCheckInAt:
+        latestSession?.checkInAt?.toISOString() ||
+        activeSession?.checkInAt?.toISOString() ||
+        '',
+      lastCheckOutAt: latestSession?.checkOutAt?.toISOString() || '',
+      lastPresenceAt:
+        activeSession?.checkInAt?.toISOString() ||
+        latestSession?.checkOutAt?.toISOString() ||
+        latestSession?.checkInAt?.toISOString() ||
+        '',
+      sessionCount: sortedSessions.length,
+      toggleActionLabel:
+        presenceStatus === 'ACTIVE' ? 'Xac nhan Off' : 'Xac nhan dang tap',
+      presenceStatusNote:
+        presenceStatus === 'ACTIVE'
+          ? 'Hoi vien dang duoc xac nhan hien dien tai phong tap.'
+          : presenceStatus === 'AUTO_CLOSED'
+            ? 'Phien truoc da tu dong dong vi qua moc sang ngay moi.'
+            : presenceStatus === 'OFF'
+              ? 'Hoi vien da ket thuc buoi tap gan nhat.'
+              : 'Chua co lan xac nhan hien dien nao.',
+      sessions: sortedSessions.map((session) => ({
+        id: session.id,
+        status: session.status,
+        source: session.source,
+        checkInAt: session.checkInAt.toISOString(),
+        checkOutAt: session.checkOutAt?.toISOString() || '',
+        autoClosedAt: session.autoClosedAt?.toISOString() || '',
+        durationMinutes:
+          session.checkOutAt && session.checkOutAt > session.checkInAt
+            ? differenceInMinutes(session.checkOutAt, session.checkInAt)
+            : activeSession?.id === session.id
+              ? Math.max(differenceInMinutes(new Date(), session.checkInAt), 0)
+              : 0,
+        attendanceMachineId: session.attendanceMachineId || '',
+        machineName: session.attendanceMachine?.name || '',
+        note: session.note || '',
+      })),
+    };
   }
 
   private mapCustomerPayload(
@@ -615,6 +781,228 @@ export class CrmService {
       payload,
     );
     return payload;
+  }
+
+  async listMemberPresence(query: QueryDto, user: AuthUser) {
+    const branchId =
+      !this.isGlobal(user) && user.branchId ? user.branchId : query.branchId;
+    await this.autoCloseExpiredMemberPresenceSessions({ branchId });
+
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        deletedAt: null,
+        ...(branchId ? { branchId } : {}),
+        ...(query.search
+          ? {
+              OR: [
+                { code: { contains: query.search, mode: 'insensitive' } },
+                { fullName: { contains: query.search, mode: 'insensitive' } },
+                { phone: { contains: query.search, mode: 'insensitive' } },
+                {
+                  fingerprintCode: {
+                    contains: query.search,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            }
+          : {}),
+      },
+      include: {
+        branch: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { fullName: 'asc' }],
+    });
+
+    const customerIds = customers.map((item) => item.id);
+    const sessions = customerIds.length
+      ? await this.prisma.memberPresenceSession.findMany({
+          where: {
+            customerId: { in: customerIds },
+          },
+          include: {
+            attendanceMachine: {
+              select: {
+                name: true,
+              },
+            },
+          },
+          orderBy: [{ checkInAt: 'desc' }, { createdAt: 'desc' }],
+        })
+      : [];
+
+    const sessionsByCustomer = sessions.reduce<Record<string, any[]>>(
+      (acc, session) => {
+        acc[session.customerId] ||= [];
+        acc[session.customerId].push(session);
+        return acc;
+      },
+      {},
+    );
+    const mapped = customers.map((customer) =>
+      this.mapMemberPresenceRecord(customer, sessionsByCustomer[customer.id] || []),
+    );
+    const filtered = query.status
+      ? mapped.filter((item) => item.presenceStatus === query.status)
+      : mapped;
+    const offset = (query.page - 1) * query.pageSize;
+    const paged = filtered.slice(offset, offset + query.pageSize);
+
+    return buildListResponse(paged, filtered.length, query);
+  }
+
+  async getMemberPresence(id: string, user: AuthUser) {
+    await this.autoCloseExpiredMemberPresenceSessions({ customerId: id });
+
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: {
+        branch: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Hoi vien khong ton tai');
+    }
+
+    if (!this.isGlobal(user) && user.branchId && customer.branchId !== user.branchId) {
+      throw new NotFoundException('Hoi vien khong ton tai');
+    }
+
+    const sessions = await this.prisma.memberPresenceSession.findMany({
+      where: {
+        customerId: customer.id,
+      },
+      include: {
+        attendanceMachine: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ checkInAt: 'desc' }, { createdAt: 'desc' }],
+      take: 20,
+    });
+
+    return this.mapMemberPresenceRecord(customer, sessions);
+  }
+
+  async toggleMemberPresence(
+    customerId: string,
+    dto: ToggleMemberPresenceDto,
+    user: AuthUser,
+  ) {
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        id: customerId,
+        deletedAt: null,
+      },
+      include: {
+        branch: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Hoi vien khong ton tai');
+    }
+
+    if (!this.isGlobal(user) && user.branchId && customer.branchId !== user.branchId) {
+      throw new NotFoundException('Hoi vien khong ton tai');
+    }
+
+    await this.autoCloseExpiredMemberPresenceSessions({
+      customerId: customer.id,
+      branchId: customer.branchId,
+    });
+
+    let attendanceMachineId: string | undefined;
+    if (dto.attendanceMachineId) {
+      const machine = await this.prisma.attendanceMachine.findFirst({
+        where: {
+          id: dto.attendanceMachineId,
+          branchId: customer.branchId,
+        },
+        select: {
+          id: true,
+        },
+      });
+      if (!machine) {
+        throw new NotFoundException(
+          'May cham cong khong ton tai trong chi nhanh cua hoi vien.',
+        );
+      }
+      attendanceMachineId = machine.id;
+    }
+
+    const activeSession = await this.prisma.memberPresenceSession.findFirst({
+      where: {
+        customerId: customer.id,
+        status: MemberPresenceStatus.ACTIVE,
+      },
+      orderBy: [{ checkInAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const now = new Date();
+    let action: AuditAction = AuditAction.UPDATE;
+    let beforeData: unknown = activeSession || undefined;
+    let afterData: unknown;
+
+    if (activeSession) {
+      const payload = await this.prisma.memberPresenceSession.update({
+        where: { id: activeSession.id },
+        data: {
+          status: MemberPresenceStatus.OFF,
+          checkOutAt: now,
+          note:
+            dto.note !== undefined ? dto.note : activeSession.note || undefined,
+        },
+      });
+      afterData = payload;
+    } else {
+      const graceHours = await this.getMemberPresenceGraceHours();
+      const payload = await this.prisma.memberPresenceSession.create({
+        data: {
+          branchId: customer.branchId,
+          customerId: customer.id,
+          attendanceMachineId,
+          checkInAt: now,
+          graceHours,
+          source: (dto.source || 'MANUAL') as MemberPresenceSource,
+          status: MemberPresenceStatus.ACTIVE,
+          note: dto.note,
+        },
+      });
+      action = AuditAction.CREATE;
+      beforeData = undefined;
+      afterData = payload;
+    }
+
+    await this.audit(
+      user,
+      'member-presence',
+      action,
+      'member_presence_session',
+      String((afterData as { id?: string }).id || customer.id),
+      beforeData,
+      afterData,
+    );
+
+    return this.getMemberPresence(customer.id, user);
   }
 
   async listLeads(query: QueryDto, user: AuthUser) {
