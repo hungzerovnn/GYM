@@ -150,6 +150,7 @@ export const menuGroups: MenuGroup[] = [
       { label: "Cau hinh bank", href: "/settings/bank", icon: "landmark", description: "Tai khoan ngan hang va cau hinh thanh toan." },
       { label: "Quan ly mau in", href: "/settings/print-templates", icon: "printer", description: "Mau in hop dong, phieu thu, phieu chi, ban hang, tra hang va xem truoc khi in." },
       { label: "Quan ly nguoi dung", href: "/settings/users", icon: "users", description: "Tai khoan he thong, vai tro va dat lai mat khau." },
+      { label: "Vai tro / phan quyen", href: "/settings/roles", icon: "shield-check", description: "Tao vai tro, gan quyen va quan ly ma tran phan quyen." },
       { label: "Cau hinh xuat bao cao", href: "/settings/report-templates", icon: "file-spreadsheet", description: "Tieu de, header/footer, bo loc mac dinh va tuy chon xuat/in cho tung bao cao." },
       { label: "Quan ly chi nhanh", href: "/settings/branches", icon: "map-pinned", description: "Chi nhanh, gio mo cua, luot dat va quy tac coc." },
       { label: "Lich su thao tac", href: "/settings/audit-logs", icon: "history", description: "Lich su thao tac create / update / delete / login / export." },
@@ -2470,6 +2471,13 @@ export const portalPageRegistry: Record<string, PortalPageDefinition> = {
     resourceKey: "users",
     title: "Quan ly nguoi dung",
     subtitle: "Tai khoan he thong, dat lai mat khau, vai tro va pham vi chi nhanh.",
+  },
+  "settings/roles": {
+    kind: "resource",
+    key: "settings-roles",
+    resourceKey: "roles",
+    title: "Vai tro / phan quyen",
+    subtitle: "Tao vai tro, gan quyen va quan ly ma tran phan quyen.",
   },
   "settings/report-templates": {
     kind: "setting",
