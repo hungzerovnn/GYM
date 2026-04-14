@@ -16,7 +16,10 @@
   --danger: #dc2626;
   --warning: #ca8a04;
   --info: #0f766e;
+  --radius-md: 0.82rem;
   --radius-lg: 0.95rem;
+  --panel-padding: 1rem;
+  --panel-padding-compact: 0.85rem;
 }
 
 * {
@@ -68,6 +71,191 @@ textarea {
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
 }
 
+.portal-shell .portal-panel {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 96%, #eef8f0 4%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  padding: var(--panel-padding);
+}
+
+.portal-shell .portal-panel-compact {
+  padding: var(--panel-padding-compact);
+}
+
+.portal-shell .portal-surface,
+.portal-shell .portal-surface-muted {
+  border-radius: 0.9rem;
+  border: 1px solid var(--border);
+  padding: 0.85rem 0.95rem;
+}
+
+.portal-shell .portal-surface {
+  background: white;
+}
+
+.portal-shell .portal-surface-muted {
+  background: color-mix(in srgb, var(--surface-muted) 88%, white 12%);
+}
+
+.portal-shell .portal-chip,
+.portal-shell .portal-chip-accent,
+.portal-shell .portal-chip-danger,
+.portal-shell .portal-chip-neutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.34rem 0.72rem;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.portal-shell .portal-chip {
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-muted);
+}
+
+.portal-shell .portal-chip-accent {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #047857;
+}
+
+.portal-shell .portal-chip-danger {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.portal-shell .portal-chip-neutral {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.portal-shell .portal-empty {
+  border-radius: 0.9rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-muted) 90%, white 10%);
+  padding: 0.95rem 1rem;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.portal-shell .portal-table {
+  overflow: hidden;
+  border-radius: 0.95rem;
+  border: 1px solid var(--border);
+  background: white;
+}
+
+.portal-shell .portal-table table {
+  min-width: 100%;
+  font-size: 12px;
+}
+
+.portal-shell .portal-table thead {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.portal-shell .portal-table th,
+.portal-shell .portal-table td {
+  padding: 0.72rem 0.95rem;
+  vertical-align: top;
+}
+
+.portal-shell .portal-search {
+  height: 2.2rem;
+  width: 100%;
+  border-radius: 0.58rem;
+  border: 1px solid var(--border);
+  background: white;
+  padding: 0.48rem 0.72rem;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.portal-shell .portal-search:focus {
+  border-color: rgba(22, 163, 74, 0.6);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+}
+
+.portal-shell .dashboard-workspace .card.p-5,
+.portal-shell .settings-workspace .card.p-5 {
+  padding: var(--panel-padding);
+}
+
+.portal-shell .dashboard-workspace .card.p-4,
+.portal-shell .settings-workspace .card.p-4,
+.portal-shell .settings-workspace .rounded-2xl.border.border-slate-200.bg-slate-50.p-4,
+.portal-shell .settings-workspace .rounded-2xl.border.border-amber-200.bg-amber-50.p-4 {
+  padding: var(--panel-padding-compact);
+}
+
+.portal-shell .dashboard-workspace .rounded-2xl,
+.portal-shell .settings-workspace .rounded-2xl {
+  border-radius: 0.95rem;
+}
+
+.portal-shell .dashboard-workspace .text-xs.font-semibold.uppercase,
+.portal-shell .settings-workspace .text-xs.font-semibold.uppercase,
+.portal-shell .pt-schedule-workspace .text-xs.font-semibold.uppercase {
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.22em;
+}
+
+.portal-shell .dashboard-workspace .text-xl.font-semibold,
+.portal-shell .settings-workspace .text-xl.font-semibold {
+  font-size: 1.15rem;
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+.portal-shell .dashboard-workspace .text-2xl.font-semibold,
+.portal-shell .settings-workspace .text-2xl.font-semibold,
+.portal-shell .settings-workspace .text-2xl.font-bold {
+  font-size: 1.45rem;
+  line-height: 1.1;
+  font-weight: 800;
+}
+
+.portal-shell .dashboard-workspace .text-sm.text-slate-500,
+.portal-shell .dashboard-workspace .text-sm.text-slate-600,
+.portal-shell .settings-workspace .text-sm.text-slate-500,
+.portal-shell .settings-workspace .text-sm.text-slate-600,
+.portal-shell .settings-workspace .text-\[12px\].text-slate-600,
+.portal-shell .settings-workspace .text-\[12px\].text-slate-500 {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.portal-shell .pt-schedule-workspace aside > section {
+  border-radius: var(--radius-lg);
+  padding: var(--panel-padding-compact);
+}
+
+.portal-shell .pt-schedule-workspace aside > section input,
+.portal-shell .pt-schedule-workspace aside > section select {
+  height: 2.2rem;
+  border-radius: 0.58rem;
+  font-size: 12px;
+}
+
+.portal-shell .pt-schedule-workspace .rounded-\[1rem\].border.border-white\/70.bg-white\/85,
+.portal-shell .pt-schedule-workspace .rounded-\[1rem\].border.border-slate-200.bg-white,
+.portal-shell .pt-schedule-workspace .rounded-\[1rem\].border.border-slate-200.bg-white.p-4 {
+  border-radius: var(--radius-lg);
+}
+
 .primary-button {
   display: inline-flex;
   align-items: center;
@@ -106,6 +294,7 @@ textarea {
 .field {
   display: grid;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .field > span {
@@ -114,9 +303,12 @@ textarea {
   color: var(--text);
 }
 
-.field input,
+.field input:not([type="checkbox"]):not([type="radio"]),
 .field select,
 .field textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 2.55rem;
   border-radius: 0.68rem;
   border: 1px solid var(--border);
@@ -133,11 +325,22 @@ textarea {
   min-height: 5.75rem;
 }
 
-.field input:focus,
+.field input:not([type="checkbox"]):not([type="radio"]):focus,
 .field select:focus,
 .field textarea:focus {
   border-color: rgba(22, 163, 74, 0.6);
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+}
+
+.field input[type="checkbox"],
+.field input[type="radio"] {
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  min-height: 1rem;
+  max-width: 1rem;
+  padding: 0;
+  appearance: auto;
 }
 
 .field small {
@@ -166,7 +369,7 @@ textarea {
   font-weight: 700;
 }
 
-.portal-shell .field input,
+.portal-shell .field input:not([type="checkbox"]):not([type="radio"]),
 .portal-shell .field select,
 .portal-shell .field textarea {
   min-height: 2.2rem;
@@ -258,9 +461,26 @@ textarea {
 }
 
 .login-brand {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1rem;
-  align-items: center;
+}
+
+.login-brand-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.login-brand-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+}
+
+.login-brand-copy {
+  max-width: 42rem;
 }
 
 .login-logo {
@@ -268,9 +488,52 @@ textarea {
   height: 4.5rem;
   width: 4.5rem;
   place-items: center;
+  overflow: hidden;
   border-radius: 1.5rem;
   background: linear-gradient(135deg, #bbf7d0, #22c55e);
   color: #14532d;
   font-size: 1.4rem;
   font-weight: 800;
+  flex-shrink: 0;
+}
+
+.login-logo-wide {
+  width: fit-content;
+  max-width: min(100%, 30rem);
+  min-width: min(100%, 18rem);
+  min-height: clamp(5rem, 10vw, 6.75rem);
+  height: auto;
+  padding: 0.75rem 1rem;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(240, 253, 244, 0.92)),
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 60%);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.login-logo-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: clamp(3.9rem, 8vw, 5rem);
+  object-fit: contain;
+  object-position: left center;
+}
+
+@media (max-width: 640px) {
+  .login-brand-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .login-brand-actions {
+    width: 100%;
+  }
+
+  .login-logo-wide {
+    min-width: 0;
+    max-width: min(100%, 22rem);
+  }
 }

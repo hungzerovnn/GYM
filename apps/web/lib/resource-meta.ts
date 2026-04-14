@@ -24,6 +24,10 @@ export const resourceDetailConfigs: Record<
     detailEndpoint: (id) => `/customer-sources/${id}`,
     entityType: "customer_source",
   },
+  "product-groups": {
+    detailEndpoint: (id) => `/product-groups/${id}`,
+    entityType: "product_group",
+  },
   leads: {
     detailEndpoint: (id) => `/leads/${id}`,
     entityType: "lead",
@@ -52,6 +56,14 @@ export const resourceDetailConfigs: Record<
     detailEndpoint: (id) => `/lockers/${id}`,
     entityType: "locker",
   },
+  "locker-rentals": {
+    detailEndpoint: (id) => `/locker-rentals/${id}`,
+    entityType: "locker_rental",
+  },
+  "towel-issues": {
+    detailEndpoint: (id) => `/towel-issues/${id}`,
+    entityType: "towel_issue",
+  },
   deposits: {
     detailEndpoint: (id) => `/deposits/${id}`,
     entityType: "deposit",
@@ -67,6 +79,10 @@ export const resourceDetailConfigs: Record<
   roles: {
     detailEndpoint: (id) => `/roles/${id}`,
     entityType: "role",
+  },
+  "tenant-databases": {
+    detailEndpoint: (id) => `/tenant-databases/${id}`,
+    entityType: "tenant_database",
   },
   "attendance-machines": {
     detailEndpoint: (id) => `/attendance-machines/${id}`,
@@ -178,7 +194,15 @@ export const buildResourcePrintEntries = (resource: ResourceDefinition, record: 
     }
   });
 
-  const orderedKeys = Array.from(new Set([...resource.detailFields, ...resource.columns.map((column) => column.key), ...resource.fields.map((field) => field.name)]));
+  const orderedKeys = resource.detailFields.length
+    ? resource.detailFields
+    : Array.from(
+        new Set(
+          [...resource.columns.map((column) => column.key), ...resource.fields.map((field) => field.name)].filter(
+            (key) => !/(^id$|Id$|Ids$|Avatar|Image|Secret|Token|Password|Url$)/.test(key),
+          ),
+        ),
+      );
 
   return orderedKeys
     .map((key) => ({
@@ -187,4 +211,177 @@ export const buildResourcePrintEntries = (resource: ResourceDefinition, record: 
       type: labels.get(key)?.type,
     }))
     .filter((item) => item.value !== null && item.value !== undefined && item.value !== "");
+};
+
+const previewDateValues = ["2026-04-01", "2026-04-08", "2026-04-15", "2026-04-22"];
+const previewDateTimeValues = [
+  "2026-04-01T08:30:00.000Z",
+  "2026-04-08T10:15:00.000Z",
+  "2026-04-15T14:00:00.000Z",
+  "2026-04-22T17:45:00.000Z",
+];
+
+const buildPreviewCodePrefix = (resource: ResourceDefinition) => {
+  const tokens = `${resource.key} ${resource.baseKey || ""} ${resource.title}`.toLowerCase();
+  if (tokens.includes("customer") || tokens.includes("member")) return "HV";
+  if (tokens.includes("lead")) return "LEAD";
+  if (tokens.includes("contract")) return "HD";
+  if (tokens.includes("receipt")) return "PT";
+  if (tokens.includes("expense")) return "PC";
+  if (tokens.includes("deposit")) return "COC";
+  if (tokens.includes("product")) return "SP";
+  if (tokens.includes("purchase")) return "PN";
+  if (tokens.includes("supplier")) return "NCC";
+  if (tokens.includes("locker")) return "TUDO";
+  if (tokens.includes("branch")) return "CN";
+  if (tokens.includes("user") || tokens.includes("staff")) return "NV";
+  return "MAU";
+};
+
+const inferPreviewValue = (
+  resource: ResourceDefinition,
+  fieldKey: string,
+  fieldType: string | undefined,
+  index: number,
+) => {
+  const normalizedKey = fieldKey.toLowerCase();
+  const sequence = index + 1;
+  const codePrefix = buildPreviewCodePrefix(resource);
+
+  if (
+    fieldType === "currency" ||
+    /(amount|price|revenue|debt|value|profit|vat|budget|ticket|balance|cost|fee|salary|commission)/.test(normalizedKey)
+  ) {
+    return sequence * 1250000;
+  }
+
+  if (fieldType === "date" || /(date|birthday|birth|issued|expires|expiry)/.test(normalizedKey)) {
+    return previewDateValues[index % previewDateValues.length];
+  }
+
+  if (fieldType === "datetime" || /(createdat|updatedat|checkedin|checkedout|scheduled|time|at$)/.test(normalizedKey)) {
+    return previewDateTimeValues[index % previewDateTimeValues.length];
+  }
+
+  if (fieldType === "status" || normalizedKey.includes("status")) {
+    if (normalizedKey.includes("payment")) return "COMPLETED";
+    if (normalizedKey.includes("presence")) return "ACTIVE";
+    if (normalizedKey.includes("attendance")) return "PRESENT";
+    return "ACTIVE";
+  }
+
+  if (/(phone|mobile|hotline|tel)/.test(normalizedKey)) {
+    return `09123${String(4500 + sequence).padStart(4, "0")}`;
+  }
+
+  if (normalizedKey.includes("email")) {
+    return "demo@fitflow.vn";
+  }
+
+  if (/(code|number|card|receipt|contract|reference|attendance)/.test(normalizedKey)) {
+    return `${codePrefix}-${String(sequence).padStart(4, "0")}`;
+  }
+
+  if (normalizedKey.includes("branch")) {
+    return "Chi nhanh Trung tam";
+  }
+
+  if (/(customer|member|fullname|contactname|ownername|partnername)/.test(normalizedKey)) {
+    return "Nguyen Thi Anh";
+  }
+
+  if (normalizedKey.includes("lead")) {
+    return "Le Minh Lead";
+  }
+
+  if (normalizedKey.includes("trainer")) {
+    return "Tran Huu PT";
+  }
+
+  if (/(staff|user|collector|approver|assigned|sale|creator|cashier)/.test(normalizedKey)) {
+    return "Le Hoang Sales";
+  }
+
+  if (normalizedKey.includes("group")) {
+    return "Nhom VIP";
+  }
+
+  if (normalizedKey.includes("source")) {
+    return "Referral";
+  }
+
+  if (/(service|package|product|item|plan)/.test(normalizedKey)) {
+    return "Goi VIP 12 thang";
+  }
+
+  if (/(address|location|ward|district|city)/.test(normalizedKey)) {
+    return "12 Nguyen Hue, Quan 1";
+  }
+
+  if (normalizedKey.includes("website")) {
+    return "fitflow.vn";
+  }
+
+  if (/(note|description|content|reason|remark)/.test(normalizedKey)) {
+    return "Ban preview de canh bo cuc va noi dung.";
+  }
+
+  if (
+    fieldType === "number" ||
+    /(count|sessions|days|minutes|hours|percent|rate|score|point|quantity|qty|rank|age|total)/.test(normalizedKey)
+  ) {
+    return sequence * 3;
+  }
+
+  return `${resource.title} ${sequence}`;
+};
+
+export const buildResourcePreviewRecord = (resource: ResourceDefinition) => {
+  const fieldTypeByKey = new Map<string, string>();
+
+  resource.columns.forEach((column) => {
+    if (!fieldTypeByKey.has(column.key)) {
+      fieldTypeByKey.set(column.key, column.type || "text");
+    }
+  });
+
+  resource.fields.forEach((field) => {
+    if (!fieldTypeByKey.has(field.name)) {
+      fieldTypeByKey.set(field.name, field.type);
+    }
+  });
+
+  const orderedKeys = Array.from(new Set([...resource.detailFields, ...resource.columns.map((column) => column.key), ...resource.fields.map((field) => field.name)]));
+
+  return Object.fromEntries(
+    orderedKeys.map((key, index) => [key, inferPreviewValue(resource, key, fieldTypeByKey.get(key), index)]),
+  ) as Record<string, unknown>;
+};
+
+export const buildResourceDesignerDataset = (
+  resource: ResourceDefinition,
+  record: Record<string, unknown>,
+  options?: {
+    maxSummaryItems?: number;
+    maxRows?: number;
+  },
+) => {
+  const maxSummaryItems = options?.maxSummaryItems ?? 4;
+  const maxRows = options?.maxRows ?? 12;
+  const entries = buildResourcePrintEntries(resource, record);
+  const summary = entries.slice(0, maxSummaryItems).map((item) => ({
+    label: item.label,
+    value: item.value,
+    type: item.type,
+  }));
+  const detailEntries = (entries.length > maxSummaryItems ? entries.slice(maxSummaryItems) : entries).slice(0, maxRows);
+
+  return {
+    summary,
+    rows: detailEntries.map((item) => ({
+      chiTieu: item.label,
+      giaTri: item.value,
+    })),
+    columns: ["chiTieu", "giaTri"],
+  };
 };

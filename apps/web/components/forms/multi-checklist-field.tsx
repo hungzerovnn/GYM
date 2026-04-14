@@ -71,7 +71,7 @@ export function MultiChecklistField({
 
               return (
                 <label
-                  className={`flex cursor-pointer gap-3 rounded-2xl border px-4 py-3 transition ${
+                  className={`flex items-start cursor-pointer gap-3 rounded-2xl border px-4 py-3 transition ${
                     checked
                       ? "border-emerald-500 bg-emerald-50/80 shadow-[0_10px_30px_rgba(34,197,94,0.10)]"
                       : "border-slate-200 bg-slate-50/70 hover:border-emerald-300"
@@ -80,7 +80,7 @@ export function MultiChecklistField({
                 >
                   <input
                     checked={checked}
-                    className="mt-1 h-4 w-4 accent-emerald-600"
+                    className="mt-1 h-4 w-4 shrink-0 self-start accent-emerald-600"
                     onChange={() => toggleItem(item.value)}
                     type="checkbox"
                   />
@@ -105,7 +105,12 @@ export function MultiChecklistField({
         )}
 
         <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50/80 px-4 py-3 text-[11px] text-slate-500">
-          <input checked={allSelected} className="h-4 w-4 accent-emerald-600" onChange={() => onChange(allSelected ? [] : allValues)} type="checkbox" />
+          <input
+            checked={allSelected}
+            className="h-4 w-4 shrink-0 accent-emerald-600"
+            onChange={() => onChange(allSelected ? [] : allValues)}
+            type="checkbox"
+          />
           <span>{translateText("Bat nhanh tat ca vai tro trong danh sach nay.")}</span>
         </div>
       </div>

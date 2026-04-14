@@ -1,4 +1,6 @@
-import { translateText } from "./display";
+import { getLocaleBundle } from "./messages";
+import { translateEnum, translateEnumCode, translateStatus, translateText } from "./display";
+import { getCurrentLocale } from "./runtime";
 import { ResourceDefinition, SettingDefinition, ReportDefinition, MenuGroup, PortalPageDefinition } from "@/types/portal";
 
 const translatableKeys = new Set([
@@ -12,9 +14,40 @@ const translatableKeys = new Set([
   "createLabel",
   "emptyStateTitle",
   "emptyStateDescription",
+  "emptyStateExamples",
   "noticeTitle",
   "noticeDescription",
 ]);
+
+const localizeOptionLabel = (option: Record<string, unknown>) => {
+  const rawLabel = String(option.label || "");
+  const translatedLabel = translateText(rawLabel);
+  if (translatedLabel !== rawLabel) {
+    return translatedLabel;
+  }
+
+  const rawValue = String(option.value || "").trim();
+  if (!rawValue) {
+    return translatedLabel;
+  }
+
+  if (rawValue === "true" || rawValue === "false") {
+    return translateEnum("boolean", rawValue);
+  }
+
+  const localizedStatus = translateStatus(rawValue);
+  const bundle = getLocaleBundle(getCurrentLocale());
+  if (bundle.statuses[localizedStatus.normalized]) {
+    return localizedStatus.label;
+  }
+
+  const localizedEnum = translateEnumCode(rawValue);
+  if (localizedEnum) {
+    return localizedEnum;
+  }
+
+  return translatedLabel;
+};
 
 const localizeValue = (value: unknown, key?: string): unknown => {
   if (Array.isArray(value)) {
@@ -37,7 +70,7 @@ const localizeValue = (value: unknown, key?: string): unknown => {
             option && typeof option === "object"
               ? {
                   ...(option as Record<string, unknown>),
-                  label: translateText((option as Record<string, unknown>).label || ""),
+                  label: localizeOptionLabel(option as Record<string, unknown>),
                 }
               : option,
           ),

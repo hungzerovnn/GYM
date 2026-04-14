@@ -9,7 +9,7 @@ interface SearchBarProps {
 export function SearchBar({ value, onChange, placeholder }: SearchBarProps) {
   return (
     <input
-      className="h-8 w-full rounded-[0.62rem] border border-slate-200 bg-white px-3 text-[11px] outline-none ring-0 transition focus:border-emerald-400"
+      className="portal-search"
       onChange={(event) => onChange(event.target.value)}
       placeholder={translateText(placeholder || "Search...")}
       value={value}

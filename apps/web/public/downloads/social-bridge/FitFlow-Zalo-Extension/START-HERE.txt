@@ -1,0 +1,14 @@
+﻿FitFlow Zalo Extension - START HERE
+
+1. Giai nen file zip nay.
+2. Chay "Install-Extension.cmd".
+3. Bat Developer mode trong Chrome / Edge.
+4. Bam Load unpacked va chon folder browser-extension.
+5. Mo CRM va mo kenh Zalo trong cung trinh duyet.
+6. Sau khi extension da duoc cai, no se tu thu lien ket va tu sync khi bat duoc CRM + kenh that.
+
+Goi y:
+- Mo chat.zalo.me hoac Zalo OA tren cung trinh duyet voi CRM. Neu auto-link khong bat duoc, luc do moi nhap session token / pair code.
+- Google Chrome ban chinh thuc khong cho nap unpacked extension bang command-line. Neu muon "chi bam Cai" cho khach, can dua extension len Chrome Web Store / Edge Add-ons.
+- Session token / pair code chi dung khi auto-link khong bat duoc.
+- Khach chi can chon dung goi theo kenh dang dung, khong can tu suy nghi xem extension nao hop.

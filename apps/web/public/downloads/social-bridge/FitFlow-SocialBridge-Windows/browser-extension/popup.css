@@ -1,0 +1,166 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", sans-serif;
+  --bg: #f4f7fb;
+  --card: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #dbe4ee;
+  --accent: #10b981;
+  --accent-strong: #059669;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, rgba(16, 185, 129, 0.16), transparent 34%), var(--bg);
+  color: var(--text);
+}
+
+.shell {
+  width: 380px;
+  padding: 16px;
+}
+
+.hero {
+  margin-bottom: 14px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 6px 0 6px;
+  font-size: 22px;
+}
+
+.copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.card + .card,
+.actions + .card,
+.card + .actions,
+.status {
+  margin-top: 12px;
+}
+
+.card label {
+  display: block;
+}
+
+.card label + label {
+  margin-top: 10px;
+}
+
+.card span,
+.label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+  color: var(--text);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+button {
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+}
+
+.secondary {
+  background: white;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.muted {
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.meta-row + .meta-row {
+  margin-top: 8px;
+}
+
+.meta-row strong {
+  color: var(--text);
+  text-align: right;
+}
+
+.status {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  color: white;
+  font-size: 12px;
+  line-height: 1.5;
+}

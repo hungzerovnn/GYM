@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import {
   Bar,
   BarChart,
@@ -19,7 +20,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/lib/auth-context";
 import { api, ListResponse } from "@/lib/api";
-import { formatCurrency, formatNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import { translateText } from "@/lib/i18n/display";
 import { KPIStatCard } from "../dashboard/kpi-stat-card";
 import { EmptyState } from "../feedback/empty-state";
@@ -52,6 +53,33 @@ interface DashboardPayload {
   leadBySource: Array<{ source: string; total: number }>;
   recentActivities: Array<Record<string, unknown>>;
   actionItems: Array<{ label: string; value: number }>;
+  birthdayTodayMembers: Array<{
+    id: string;
+    code: string;
+    fullName: string;
+    phone: string;
+    branchName: string;
+    birthDate: string;
+    membershipStatus: string;
+  }>;
+  expiredMemberCheckInAlerts: {
+    totalAttempts: number;
+    records: Array<{
+      customerId: string;
+      fullName: string;
+      code: string;
+      phone: string;
+      branchName: string;
+      attemptCount: number;
+      lastAttemptAt: string;
+      overdueDays: number;
+      membershipEndDate: string;
+      source: string;
+      machineName: string;
+      attendanceCode: string;
+      note: string;
+    }>;
+  };
 }
 
 export function DashboardWorkspace({
@@ -61,6 +89,7 @@ export function DashboardWorkspace({
   title?: string;
   subtitle?: string;
 }) {
+  const router = useRouter();
   const { user, isReady } = useAuth();
   const canViewBranches = user?.permissions.includes("branches.view");
   const [filters, setFilters] = useState<Record<string, string>>({
@@ -109,9 +138,17 @@ export function DashboardWorkspace({
   );
 
   const summary = summaryQuery.data;
+  const expiredMemberCheckInAlerts = summary?.expiredMemberCheckInAlerts || {
+    totalAttempts: 0,
+    records: [],
+  };
+  const birthdayTodayMembers = summary?.birthdayTodayMembers || [];
+  const openBirthdayReport = () => {
+    router.push("/members/birthday");
+  };
 
   return (
-    <div className="space-y-5">
+    <div className="dashboard-workspace space-y-5">
       <PageHeader
         title={title}
         subtitle={subtitle}
@@ -155,6 +192,124 @@ export function DashboardWorkspace({
 
           {summary ? (
             <>
+              <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.75fr)]">
+                <div>
+                  <div className="card border border-rose-200 bg-rose-50/40 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-700">{translateText("Cảnh báo chấm công")}</p>
+                        <h3 className="mt-2 text-xl font-semibold text-slate-900">{translateText("Hội viên quá hạn vẫn chấm công")}</h3>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {translateText("Danh sách hội viên đã hết hạn nhưng vẫn có lần cố gắng check-in vào tập trong khoảng thời gian lọc hiện tại.")}
+                        </p>
+                      </div>
+                      <div className="rounded-full border border-rose-200 bg-white px-3 py-1 text-sm font-semibold text-rose-700">
+                        {formatNumber(expiredMemberCheckInAlerts.totalAttempts)} {translateText("lượt cảnh báo")}
+                      </div>
+                    </div>
+
+                    {expiredMemberCheckInAlerts.records.length ? (
+                      <div className="mt-5 overflow-hidden rounded-2xl border border-rose-100 bg-white">
+                        <div className="divide-y divide-rose-100">
+                          {expiredMemberCheckInAlerts.records.map((item) => (
+                            <div className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.2fr)_220px_220px]" key={item.customerId}>
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-slate-900">{item.fullName}</div>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  {[item.code, item.phone, item.branchName].filter(Boolean).join(" • ") || "-"}
+                                </div>
+                                {item.attendanceCode ? (
+                                  <div className="mt-2 inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+                                    {`${translateText("Mã chấm công")}: ${item.attendanceCode}`}
+                                  </div>
+                                ) : null}
+                              </div>
+
+                              <div className="text-sm text-slate-600">
+                                <div className="font-semibold text-rose-700">
+                                  {item.overdueDays > 0
+                                    ? `${translateText("Quá hạn")}: ${formatNumber(item.overdueDays)} ${translateText("ngày")}`
+                                    : translateText("Đã hết hạn")}
+                                </div>
+                                <div className="mt-1">
+                                  {`${translateText("Hết hạn")}: ${formatDate(item.membershipEndDate || "")}`}
+                                </div>
+                                <div className="mt-1">
+                                  {`${translateText("Số lần cố gắng")}: ${formatNumber(item.attemptCount)}`}
+                                </div>
+                              </div>
+
+                              <div className="text-sm text-slate-600">
+                                <div className="font-medium text-slate-900">
+                                  {formatDateTime(item.lastAttemptAt || "")}
+                                </div>
+                                <div className="mt-1">
+                                  {item.source === "MACHINE"
+                                    ? `${translateText("Nguồn")}: ${translateText("Máy chấm công")}${item.machineName ? ` • ${item.machineName}` : ""}`
+                                    : `${translateText("Nguồn")}: ${translateText("Tại quầy")}`}
+                                </div>
+                                {item.note ? <div className="mt-1 text-xs text-slate-500">{item.note}</div> : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-5 rounded-2xl border border-emerald-100 bg-white/80 px-4 py-6 text-sm text-slate-600">
+                        {translateText("Chưa ghi nhận hội viên quá hạn cố gắng vào tập trong khoảng thời gian này.")}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  className="card block self-start p-5 text-left transition hover:border-emerald-200 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                  onClick={openBirthdayReport}
+                  type="button"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">{translateText("Sinh nhat hoi vien")}</p>
+                      <h3 className="mt-2 text-xl font-semibold text-slate-900">
+                        {`${translateText("Sinh nhat hoi vien")} ${translateText("Hom nay").toLowerCase()}`}
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-600">{formatDate(new Date())}</p>
+                    </div>
+                    <div className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
+                      {formatNumber(birthdayTodayMembers.length)} {translateText("records")}
+                    </div>
+                  </div>
+                  <div className="mt-3 inline-flex rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                    {translateText("Mo danh sach day du")}
+                  </div>
+
+                  {birthdayTodayMembers.length ? (
+                    <div className="mt-5 space-y-3">
+                      {birthdayTodayMembers.map((item) => (
+                        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 px-4 py-3" key={item.id}>
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                            <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900">{item.fullName}</div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              {[item.code, item.phone].filter(Boolean).join(" • ") || "-"}
+                            </div>
+                          </div>
+                            <div className="grid gap-1 text-xs text-slate-600 md:text-right">
+                              <div className="font-medium text-slate-700">{`${translateText("Ngay sinh")}: ${formatDate(item.birthDate || "")}`}</div>
+                              <div>{`${translateText("Chi nhanh")}: ${item.branchName || "-"}`}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/40 px-4 py-6 text-sm text-slate-600">
+                      {`${translateText("Khong co du lieu")} ${translateText("Sinh nhat hoi vien").toLowerCase()} ${translateText("Hom nay").toLowerCase()}.`}
+                    </div>
+                  )}
+                </button>
+              </div>
+
               <div className="grid gap-5 xl:grid-cols-2">
                 <div className="card p-5">
                   <div className="flex items-center justify-between gap-3">

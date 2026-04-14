@@ -93,7 +93,7 @@ import { useAuth } from "@/lib/auth-context";
 import { translateText } from "@/lib/i18n/display";
 import { localizeMenuGroups } from "@/lib/i18n/portal";
 import { useLocale } from "@/lib/i18n/provider";
-import { getMenuGroupByPath, getViewPermissionForPath, menuGroups } from "@/lib/module-config";
+import { getMenuGroupByPath, getViewPermissionForPath, menuGroups } from "@/lib/navigation-config";
 import { cn } from "@/lib/format";
 
 const iconMap: Record<string, LucideIcon> = {
@@ -190,6 +190,7 @@ export function SidebarMenu() {
   const pathname = usePathname();
   const { user } = useAuth();
   const { locale } = useLocale();
+  const isSystemOwner = Boolean(user?.roleCodes.includes("system_owner"));
   const localizedGroups = useMemo(() => localizeMenuGroups(menuGroups), [locale]);
   const visibleGroups = useMemo(
     () =>
@@ -197,12 +198,15 @@ export function SidebarMenu() {
         .map((group) => ({
           ...group,
           items: group.items.filter((item) => {
+            if (item.ownerOnly && !isSystemOwner) {
+              return false;
+            }
             const permission = getViewPermissionForPath(item.href);
             return !permission || user?.permissions.includes(permission);
           }),
         }))
         .filter((group) => group.items.length > 0),
-    [localizedGroups, user?.permissions],
+    [isSystemOwner, localizedGroups, user?.permissions],
   );
   const activeGroup = useMemo(() => {
     const visibleMatch = visibleGroups.find((group) => group.items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`)));
@@ -251,7 +255,7 @@ export function SidebarMenu() {
                   >
                     <div className="max-h-[68vh] w-[236px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[0.82rem] border border-slate-200 bg-white p-1 shadow-[0_16px_40px_rgba(15,23,42,0.14)]">
                       {group.items.map((item) => {
-                        const active = pathname === item.href;
+                        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
                         return (
                           <Link

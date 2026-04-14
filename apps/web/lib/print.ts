@@ -1,5 +1,7 @@
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { translateText } from "@/lib/i18n/display";
+import { resolvePrintAssetUrl } from "@/lib/print-scope";
+import { buildReportDesignerPrintHtml, ReportDesignerBranding } from "@/lib/report-designer";
 import { ResourceColumn } from "@/types/portal";
 
 type PrintValueType = "text" | "currency" | "date" | "datetime" | "status";
@@ -24,6 +26,7 @@ interface PrintResourceListOptions {
   filters?: PrintKeyValue[];
   template?: Record<string, unknown> | null;
   profile: DocumentProfile;
+  branding?: ReportDesignerBranding | null;
 }
 
 interface PrintResourceRecordOptions {
@@ -34,6 +37,8 @@ interface PrintResourceRecordOptions {
   filters?: PrintKeyValue[];
   template?: Record<string, unknown> | null;
   profile?: DocumentProfile | null;
+  branding?: ReportDesignerBranding | null;
+  targetWindow?: Window | null;
 }
 
 interface PrintSettingPreviewOptions {
@@ -45,6 +50,8 @@ interface PrintSettingPreviewOptions {
 
 interface PrintReportOptions {
   reportKey?: string;
+  templateKey?: string;
+  templateFallbackKeys?: string[];
   autoPrint?: boolean;
   showPreviewToolbar?: boolean;
   title: string;
@@ -55,6 +62,7 @@ interface PrintReportOptions {
   columns: string[];
   template?: Record<string, unknown> | null;
   generatedBy?: string;
+  branding?: ReportDesignerBranding | null;
 }
 
 const escapeHtml = (value: unknown) =>
@@ -125,6 +133,26 @@ const reportColumnLabelOverrides: Record<string, string> = {
   usedSessions: "Số buổi đã dùng",
   verificationMethods: "Hình thức xác thực",
   workedHours: "Giờ làm",
+  contractCount: "So hop dong",
+  contractSaleType: "Loai hop dong",
+  currentContractValue: "Gia tri HD hien tai",
+  customerCount: "So hoi vien",
+  expiryStage: "Tinh trang het han",
+  previousCollectedAmount: "Da thu truoc ky",
+  previousContractCount: "HD truoc ky",
+  previousRevenue: "Doanh thu truoc ky",
+  renewContracts: "HD gia han",
+  bonusAmount: "Tien thuong",
+  bonusRatePercent: "Ty le thuong",
+  otherSourceRevenue: "DT nguon khac",
+  paidSourceRevenue: "DT nguon ads / meta",
+  qualifiedRevenue: "Doanh thu quy doi",
+  selfSourceRevenue: "DT nguon tu khai thac",
+  serviceGroup: "Nhom dich vu",
+  targetRevenue: "Target doanh thu",
+  targetStatus: "Trang thai KPI",
+  tierBasisRevenue: "Doanh thu xep bac",
+  tierLabel: "Bac thuong",
 };
 
 const toReportLabel = (value: string) => reportColumnLabelOverrides[value] || toLabel(value);
@@ -242,12 +270,7 @@ const buildPrintSection = (title: string, items: PrintKeyValue[]) => {
   const visibleItems = getVisibleItems(items);
   if (!visibleItems.length) return "";
 
-  return `
-    <section>
-      <p class="section-title">${escapeHtml(title)}</p>
-      ${buildKeyValueGrid(visibleItems)}
-    </section>
-  `;
+  return buildReportMetaTable(title, visibleItems, 2);
 };
 
 const buildHeroGrid = (items: Array<PrintKeyValue & { emphasize?: boolean }>) => {
@@ -460,7 +483,137 @@ const getRecordValue = (record: Record<string, unknown> | undefined, keys: strin
   return undefined;
 };
 
-const getSignatureCaptions = (profile?: DocumentProfile) => {
+const normalizeOrientation = (value: unknown): "portrait" | "landscape" =>
+  String(value || "").toUpperCase() === "LANDSCAPE" ? "landscape" : "portrait";
+
+const resolveTemplateBranding = (
+  branding?: ReportDesignerBranding | null,
+  template?: Record<string, unknown> | null,
+) => {
+  if (!branding) return branding;
+
+  const hideLogo =
+    template?.showLogo === false || template?.showLogo === "false";
+  if (!hideLogo) {
+    return branding;
+  }
+
+  return {
+    ...branding,
+    logoUrl: "",
+  };
+};
+
+const resolveDocumentBranchName = (record?: Record<string, unknown>, branding?: ReportDesignerBranding | null) =>
+  String(getRecordValue(record, ["branchName"]) || branding?.branchName || "").trim();
+
+const resolveDocumentSubject = (record?: Record<string, unknown>) => {
+  const memberName = getRecordValue(record, ["customerName", "memberName", "fullName", "currentCustomerName"]);
+  if (memberName) {
+    return { label: translateText("Hoi vien"), value: memberName };
+  }
+
+  const payeeName = getRecordValue(record, ["payeeName"]);
+  if (payeeName) {
+    return { label: translateText("Doi tuong"), value: payeeName };
+  }
+
+  return null;
+};
+
+const buildHeaderMetaItems = ({
+  record,
+  branding,
+  extraItems = [],
+}: {
+  record?: Record<string, unknown>;
+  branding?: ReportDesignerBranding | null;
+  extraItems?: PrintKeyValue[];
+}) => {
+  const subject = resolveDocumentSubject(record);
+  const branchName = resolveDocumentBranchName(record, branding);
+
+  return getVisibleItems([
+    branchName ? { label: translateText("Chi nhanh"), value: branchName } : null,
+    subject ? { label: subject.label, value: subject.value } : null,
+    { label: translateText("In luc"), value: new Date().toISOString(), type: "datetime" },
+    ...extraItems,
+  ].filter(Boolean) as PrintKeyValue[]);
+};
+
+const buildPrintHeader = ({
+  eyebrow,
+  title,
+  subtitle,
+  headerNote,
+  branding,
+  headerMetaItems,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  headerNote?: string;
+  branding?: ReportDesignerBranding | null;
+  headerMetaItems?: PrintKeyValue[];
+}) => {
+  const visibleMetaItems = getVisibleItems(headerMetaItems || []);
+  const normalizedLogoUrl = resolvePrintAssetUrl(String(branding?.logoUrl || ""));
+  const companyLines = [
+    branding?.legalName,
+    branding?.branchName ? `${translateText("Chi nhanh")}: ${branding.branchName}` : "",
+    branding?.address,
+    branding?.hotline ? `Hotline: ${branding.hotline}` : "",
+    branding?.email,
+    branding?.website,
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+
+  return `
+    <header class="print-header">
+      <div class="brand-panel${normalizedLogoUrl ? " brand-panel-has-logo" : ""}">
+        ${
+          normalizedLogoUrl
+            ? `<div class="brand-logo-wrap"><img class="brand-logo" src="${escapeHtml(normalizedLogoUrl)}" alt="${escapeHtml(branding?.companyName || "Logo")}" /></div>`
+            : ""
+        }
+        <div class="brand-copy">
+          <p class="brand-name">${escapeHtml(branding?.companyName || branding?.legalName || translateText("He thong"))}</p>
+          ${companyLines.length ? `<p class="brand-meta">${escapeHtml(companyLines.join(" | "))}</p>` : ""}
+        </div>
+      </div>
+      <div class="title-panel">
+        ${eyebrow ? `<p class="eyebrow">${escapeHtml(eyebrow)}</p>` : ""}
+        <h1>${escapeHtml(title)}</h1>
+        <p class="subtitle">${escapeHtml(subtitle)}</p>
+      </div>
+      <div class="header-meta-panel">
+        ${
+          visibleMetaItems.length
+            ? visibleMetaItems
+                .map(
+                  (item) => `
+                    <div class="header-meta-row">
+                      <span>${escapeHtml(item.label)}</span>
+                      <strong>${toParagraphs(formatPrintValue(item.label, item.value, item.type))}</strong>
+                    </div>
+                  `,
+                )
+                .join("")
+            : `<div class="header-meta-row header-meta-row-empty"><span>${escapeHtml(translateText("In luc"))}</span><strong>${escapeHtml(formatDateTime(new Date().toISOString()))}</strong></div>`
+        }
+      </div>
+    </header>
+    ${headerNote ? `<div class="note-box note-box-compact">${toParagraphs(headerNote)}</div>` : ""}
+  `;
+};
+
+const getSignatureCaptions = (profile?: DocumentProfile, record?: Record<string, unknown>) => {
+  const subject = resolveDocumentSubject(record);
+  if (subject?.label === translateText("Hoi vien")) {
+    return [translateText("Hoi vien xac nhan"), translateText("Dai dien chi nhanh xac nhan")];
+  }
+
   switch (profile) {
     case "receipt":
       return ["Nguoi lap phieu", "Thu ngan", "Nguoi nop tien"];
@@ -492,14 +645,10 @@ const buildResourceRecordBody = ({
     return `
       ${
         visibleFilters.length
-          ? `
-            <p class="section-title">Thong tin bo loc</p>
-            ${buildKeyValueGrid(visibleFilters)}
-          `
+          ? buildReportMetaTable("Thong tin bo loc", visibleFilters, 3)
           : ""
       }
-      <p class="section-title">Chi tiet chung tu</p>
-      ${buildKeyValueGrid(getVisibleItems(entries))}
+      ${buildReportMetaTable("Chi tiet chung tu", getVisibleItems(entries), 3)}
     `;
   }
 
@@ -608,14 +757,10 @@ const buildResourceRecordBody = ({
   return `
     ${
       visibleFilters.length
-        ? `
-          <p class="section-title">Thong tin bo loc</p>
-          ${buildKeyValueGrid(visibleFilters)}
-        `
+        ? buildReportMetaTable("Thong tin bo loc", visibleFilters, 3)
         : ""
     }
-    <p class="section-title">Chi tiet chung tu</p>
-    ${buildKeyValueGrid(getVisibleItems(entries))}
+    ${buildReportMetaTable("Chi tiet chung tu", getVisibleItems(entries), 3)}
   `;
 };
 
@@ -626,6 +771,8 @@ const buildShell = ({
   body,
   paperSize,
   orientation,
+  branding,
+  headerMetaItems,
   headerNote,
   footerNote,
   showSignature,
@@ -640,6 +787,8 @@ const buildShell = ({
   body: string;
   paperSize?: unknown;
   orientation?: "portrait" | "landscape";
+  branding?: ReportDesignerBranding | null;
+  headerMetaItems?: PrintKeyValue[];
   headerNote?: string;
   footerNote?: string;
   showSignature?: boolean;
@@ -656,7 +805,7 @@ const buildShell = ({
       <style>
         @page {
           size: ${escapeHtml(String(paperSize || "A4"))} ${escapeHtml(orientation || "portrait")};
-          margin: 12mm;
+          margin: 8mm;
         }
 
         * {
@@ -674,7 +823,7 @@ const buildShell = ({
         }
 
         body {
-          padding: 20px;
+          padding: 12px;
         }
 
         .preview-toolbar {
@@ -685,8 +834,8 @@ const buildShell = ({
           align-items: center;
           justify-content: space-between;
           gap: 12px;
-          margin: -20px -20px 20px;
-          padding: 14px 20px;
+          margin: -12px -12px 14px;
+          padding: 12px;
           border-bottom: 1px solid #d1fae5;
           background: rgba(236, 253, 245, 0.96);
           backdrop-filter: blur(10px);
@@ -723,6 +872,104 @@ const buildShell = ({
 
         .page {
           width: 100%;
+        }
+
+        .print-header {
+          display: grid;
+          grid-template-columns: minmax(240px, 1.35fr) minmax(0, 1.15fr) minmax(200px, 0.9fr);
+          gap: 10px;
+          align-items: start;
+          margin-bottom: 10px;
+          padding-bottom: 8px;
+          border-bottom: 1.5px solid #0f172a;
+        }
+
+        .brand-panel {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          min-width: 0;
+        }
+
+        .brand-panel-has-logo {
+          align-items: flex-start;
+        }
+
+        .brand-logo-wrap {
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
+          width: 152px;
+          min-width: 152px;
+          height: 68px;
+          overflow: visible;
+        }
+
+        .brand-logo {
+          display: block;
+          width: auto;
+          height: auto;
+          max-width: 100%;
+          max-height: 64px;
+          object-fit: contain;
+          object-position: left center;
+        }
+
+        .brand-copy {
+          min-width: 0;
+        }
+
+        .brand-name {
+          margin: 0;
+          color: #0f172a;
+          font-size: 14px;
+          font-weight: 700;
+          line-height: 1.3;
+          text-transform: uppercase;
+        }
+
+        .brand-meta {
+          margin: 6px 0 0;
+          color: #475569;
+          font-size: 10.5px;
+          line-height: 1.45;
+          word-break: break-word;
+        }
+
+        .title-panel {
+          text-align: center;
+        }
+
+        .header-meta-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .header-meta-row {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding: 7px 8px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          background: #f8fafc;
+          text-align: right;
+        }
+
+        .header-meta-row span {
+          color: #64748b;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .header-meta-row strong {
+          color: #0f172a;
+          font-size: 11.5px;
+          line-height: 1.35;
+          word-break: break-word;
         }
 
         .report-sheet {
@@ -789,7 +1036,7 @@ const buildShell = ({
 
         .report-meta-table th,
         .report-meta-table td {
-          padding: 7px 8px;
+          padding: 6px 7px;
           border: 1px solid #94a3b8;
           font-size: 11px;
           line-height: 1.45;
@@ -819,7 +1066,7 @@ const buildShell = ({
 
         .report-data-table th,
         .report-data-table td {
-          padding: 7px 8px;
+          padding: 6px 7px;
           border: 1px solid #94a3b8;
           color: #0f172a;
           font-size: 11px;
@@ -848,53 +1095,61 @@ const buildShell = ({
         }
 
         h1 {
-          margin: 8px 0 4px;
-          font-size: 22px;
-          line-height: 1.25;
+          margin: 6px 0 4px;
+          font-size: 20px;
+          line-height: 1.22;
         }
 
         .subtitle {
-          margin: 0 0 16px;
+          margin: 0;
           color: #475569;
+          font-size: 11px;
+          line-height: 1.45;
         }
 
         .note-box {
-          margin-bottom: 16px;
-          padding: 12px 14px;
+          margin-bottom: 10px;
+          padding: 9px 10px;
           border: 1px solid #cbd5e1;
           border-radius: 12px;
           background: #f8fafc;
           color: #334155;
+          font-size: 10.5px;
+          line-height: 1.5;
           white-space: pre-wrap;
         }
 
+        .note-box-compact {
+          margin-top: 0;
+        }
+
         .section-title {
-          margin: 20px 0 10px;
+          margin: 12px 0 8px;
           color: #0f766e;
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 700;
-          letter-spacing: 0.18em;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
         }
 
         .kv-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 10px;
-          margin-bottom: 16px;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 8px;
+          margin-bottom: 10px;
         }
 
         .hero-grid {
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 12px;
-          margin-bottom: 18px;
+          gap: 8px;
+          margin-bottom: 10px;
         }
 
         .hero-card {
-          padding: 14px 16px;
+          padding: 10px 11px;
           border: 1px solid #bbf7d0;
-          border-radius: 16px;
+          border-radius: 12px;
           background: linear-gradient(180deg, #f0fdf4 0%, #ecfdf5 100%);
           break-inside: avoid;
         }
@@ -914,9 +1169,9 @@ const buildShell = ({
         }
 
         .hero-value {
-          margin: 10px 0 0;
+          margin: 6px 0 0;
           color: #064e3b;
-          font-size: 18px;
+          font-size: 14px;
           font-weight: 700;
           line-height: 1.3;
           word-break: break-word;
@@ -931,9 +1186,9 @@ const buildShell = ({
         }
 
         .kv-card {
-          padding: 12px 14px;
+          padding: 8px 9px;
           border: 1px solid #cbd5e1;
-          border-radius: 12px;
+          border-radius: 10px;
           background: #f8fafc;
           break-inside: avoid;
         }
@@ -948,9 +1203,9 @@ const buildShell = ({
         }
 
         .kv-value {
-          margin: 8px 0 0;
+          margin: 5px 0 0;
           color: #0f172a;
-          font-size: 13px;
+          font-size: 11.5px;
           font-weight: 600;
           white-space: pre-wrap;
           word-break: break-word;
@@ -959,7 +1214,7 @@ const buildShell = ({
         .table-wrap {
           overflow: hidden;
           border: 1px solid #cbd5e1;
-          border-radius: 14px;
+          border-radius: 12px;
         }
 
         table {
@@ -972,7 +1227,7 @@ const buildShell = ({
         }
 
         th, td {
-          padding: 10px 12px;
+          padding: 7px 8px;
           border-bottom: 1px solid #e2e8f0;
           text-align: left;
           vertical-align: top;
@@ -994,14 +1249,14 @@ const buildShell = ({
 
         .signature-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 18px;
-          margin-top: 28px;
+          grid-template-columns: repeat(var(--signature-columns, 2), minmax(0, 1fr));
+          gap: 12px;
+          margin-top: 12px;
         }
 
         .signature-card {
-          min-height: 110px;
-          padding-top: 10px;
+          min-height: 78px;
+          padding-top: 8px;
           border-top: 1px solid #94a3b8;
           text-align: center;
         }
@@ -1012,13 +1267,15 @@ const buildShell = ({
 
         .signature-card .caption {
           color: #475569;
-          font-size: 11px;
+          font-size: 10px;
+          font-weight: 700;
+          text-transform: uppercase;
         }
 
         .signature-card .hint {
-          margin-top: 48px;
+          margin-top: 30px;
           color: #94a3b8;
-          font-size: 11px;
+          font-size: 10px;
         }
 
         .empty-state {
@@ -1031,6 +1288,15 @@ const buildShell = ({
         }
 
         @media (max-width: 900px) {
+          .print-header {
+            grid-template-columns: 1fr;
+          }
+
+          .header-meta-panel {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
           .hero-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
@@ -1055,33 +1321,33 @@ const buildShell = ({
         ${
           hideHeader
             ? ""
-            : `
-              ${eyebrow ? `<p class="eyebrow">${escapeHtml(eyebrow)}</p>` : ""}
-              <h1>${escapeHtml(title)}</h1>
-              <p class="subtitle">${escapeHtml(subtitle)}</p>
-              ${headerNote ? `<div class="note-box">${toParagraphs(headerNote)}</div>` : ""}
-            `
+            : buildPrintHeader({
+                eyebrow,
+                title,
+                subtitle,
+                headerNote,
+                branding,
+                headerMetaItems,
+              })
         }
         ${body}
-        ${footerNote ? `<div class="note-box">${toParagraphs(footerNote)}</div>` : ""}
+        ${footerNote ? `<div class="note-box note-box-compact">${toParagraphs(footerNote)}</div>` : ""}
         ${
           showSignature
             ? `
               <section>
                 <p class="section-title">${escapeHtml(translateText("Xac nhan"))}</p>
-                <div class="signature-grid">
-                  <div class="signature-card">
-                    <p class="caption">${escapeHtml(signatureCaptions?.[0] || translateText("Nguoi lap"))}</p>
-                    <p class="hint">${escapeHtml(translateText("(Ky, ghi ro ho ten)"))}</p>
-                  </div>
-                  <div class="signature-card">
-                    <p class="caption">${escapeHtml(signatureCaptions?.[1] || translateText("Ke toan / Phe duyet"))}</p>
-                    <p class="hint">${escapeHtml(translateText("(Ky, ghi ro ho ten)"))}</p>
-                  </div>
-                  <div class="signature-card">
-                    <p class="caption">${escapeHtml(signatureCaptions?.[2] || translateText("Khach hang / Doi tac"))}</p>
-                    <p class="hint">${escapeHtml(translateText("(Ky, ghi ro ho ten)"))}</p>
-                  </div>
+                <div class="signature-grid" style="--signature-columns:${Math.max(1, Math.min(3, signatureCaptions?.length || 2))}">
+                  ${(signatureCaptions?.length ? signatureCaptions : [translateText("Nguoi lap"), translateText("Ke toan / Phe duyet")])
+                    .map(
+                      (caption) => `
+                        <div class="signature-card">
+                          <p class="caption">${escapeHtml(caption)}</p>
+                          <p class="hint">${escapeHtml(translateText("(Ky, ghi ro ho ten)"))}</p>
+                        </div>
+                      `,
+                    )
+                    .join("")}
                 </div>
               </section>
             `
@@ -1103,10 +1369,18 @@ const buildShell = ({
   </html>
 `;
 
-const openPrintWindow = (html: string) => {
+export const createPrintWindow = () => {
   const printWindow = window.open("", "_blank", "width=1100,height=820");
   if (!printWindow) {
     window.alert(translateText("Trinh duyet dang chan cua so xem truoc / in. Hay cho phep popup cho he thong nay."));
+    return null;
+  }
+  return printWindow;
+};
+
+const openPrintWindow = (html: string, targetWindow?: Window | null) => {
+  const printWindow = targetWindow && !targetWindow.closed ? targetWindow : createPrintWindow();
+  if (!printWindow) {
     return;
   }
   printWindow.document.open();
@@ -1122,8 +1396,10 @@ export const printResourceList = ({
   filters = [],
   template,
   profile,
+  branding,
 }: PrintResourceListOptions) => {
   const documentTemplate = getDocumentTemplate(profile, template);
+  const effectiveBranding = resolveTemplateBranding(branding, template);
   const summary = [
     { label: "Tong chung tu", value: rows.length },
     { label: "In luc", value: new Date().toISOString(), type: "datetime" as const },
@@ -1135,6 +1411,11 @@ export const printResourceList = ({
       title,
       subtitle,
       eyebrow: "Resource Print",
+      branding: effectiveBranding,
+      headerMetaItems: buildHeaderMetaItems({
+        branding: effectiveBranding,
+        extraItems: [{ label: translateText("Tong chung tu"), value: rows.length }],
+      }),
       body: `
         <p class="section-title">Tong quan</p>
         ${buildKeyValueGrid(summary)}
@@ -1142,9 +1423,10 @@ export const printResourceList = ({
         ${buildTable(columns, rows)}
       `,
       paperSize: template?.paperSize,
+      orientation: normalizeOrientation(template?.paperOrientation),
       headerNote: documentTemplate.header,
       footerNote: documentTemplate.footer,
-      showSignature: asBoolean(template?.showSignature),
+      showSignature: template?.showSignature === false || template?.showSignature === "false" ? false : true,
     }),
   );
 };
@@ -1157,14 +1439,19 @@ export const printResourceRecord = ({
   filters = [],
   template,
   profile,
+  branding,
+  targetWindow,
 }: PrintResourceRecordOptions) => {
   const documentTemplate = getDocumentTemplate(profile, template);
+  const effectiveBranding = resolveTemplateBranding(branding, template);
 
   openPrintWindow(
     buildShell({
       title,
       subtitle,
       eyebrow: "Document Print",
+      branding: effectiveBranding,
+      headerMetaItems: buildHeaderMetaItems({ record, branding: effectiveBranding }),
       body: buildResourceRecordBody({
         profile,
         record,
@@ -1172,11 +1459,13 @@ export const printResourceRecord = ({
         filters,
       }),
       paperSize: template?.paperSize,
+      orientation: normalizeOrientation(template?.paperOrientation),
       headerNote: documentTemplate.header,
       footerNote: documentTemplate.footer,
-      showSignature: asBoolean(template?.showSignature),
-      signatureCaptions: getSignatureCaptions(profile || undefined),
+      showSignature: template?.showSignature === false || template?.showSignature === "false" ? false : true,
+      signatureCaptions: getSignatureCaptions(profile || undefined, record),
     }),
+    targetWindow,
   );
 };
 
@@ -1206,6 +1495,8 @@ export const printSettingPreview = ({ title, subtitle, sections, note }: PrintSe
 
 export const buildReportPrintHtml = ({
   reportKey,
+  templateKey,
+  templateFallbackKeys,
   autoPrint = true,
   showPreviewToolbar = false,
   title,
@@ -1216,69 +1507,23 @@ export const buildReportPrintHtml = ({
   columns,
   template,
   generatedBy,
+  branding,
 }: PrintReportOptions) => {
-  const baseTemplate = asRecord(template);
-  const scopedTemplate = reportKey ? asRecord(asRecord(baseTemplate.reportTemplates)[reportKey]) : {};
-  const effectiveTemplate = {
-    ...baseTemplate,
-    defaultTitle: scopedTemplate.title || baseTemplate.defaultTitle,
-    defaultSubtitle: scopedTemplate.subtitle || baseTemplate.defaultSubtitle,
-    reportHeader: scopedTemplate.header || baseTemplate.reportHeader,
-    reportFooter: scopedTemplate.footer || baseTemplate.reportFooter,
-    paperSize: scopedTemplate.paperSize || baseTemplate.paperSize,
-    defaultOrientation: scopedTemplate.orientation || baseTemplate.defaultOrientation,
-    showGeneratedBy: scopedTemplate.showGeneratedBy ?? baseTemplate.showGeneratedBy,
-    showPrintedAt: scopedTemplate.showPrintedAt ?? baseTemplate.showPrintedAt,
-    showFilters: scopedTemplate.showFilters ?? baseTemplate.showFilters,
-    showSignature: scopedTemplate.showSignature ?? baseTemplate.showSignature,
-    note: baseTemplate.note,
-  };
-  const reportHeader = String(effectiveTemplate.reportHeader || "");
-  const reportFooter = String(effectiveTemplate.reportFooter || effectiveTemplate.note || "");
-  const showGeneratedBy = asBoolean(effectiveTemplate.showGeneratedBy);
-  const showPrintedAt = asBoolean(effectiveTemplate.showPrintedAt ?? true);
-  const showFilters = asBoolean(effectiveTemplate.showFilters ?? true);
-  const overview = [...summary];
-  const reportTitle = String(scopedTemplate.title || title || effectiveTemplate.defaultTitle || "");
-  const reportSubtitle = String(scopedTemplate.subtitle || subtitle || effectiveTemplate.defaultSubtitle || "");
-
-  if (showPrintedAt) {
-    overview.unshift({ label: "In luc", value: new Date().toISOString(), type: "datetime" });
-  }
-
-  if (showGeneratedBy && generatedBy) {
-    overview.unshift({ label: "Nguoi xuat", value: generatedBy });
-  }
-
-  return buildShell({
-    title: reportTitle,
-    subtitle: reportSubtitle,
-    eyebrow: "",
+  return buildReportDesignerPrintHtml({
+    reportKey,
+    templateKey,
+    templateFallbackKeys,
     autoPrint,
     showPreviewToolbar,
-    body: `
-      <section class="report-sheet">
-        <div class="report-heading">
-          <h1 class="report-title">${escapeHtml(reportTitle)}</h1>
-          ${reportSubtitle ? `<p class="report-subtitle">${escapeHtml(reportSubtitle)}</p>` : ""}
-        </div>
-        ${reportHeader ? `<div class="report-banner">${toParagraphs(reportHeader)}</div>` : ""}
-        ${buildReportMetaTable(translateText("Thong tin bao cao"), overview, 2)}
-        ${showFilters && filters.length ? buildReportMetaTable(translateText("Dieu kien loc"), filters, 2) : ""}
-        <section class="report-section">
-          <p class="report-section-title">${escapeHtml(translateText("Bang du lieu bao cao"))}</p>
-          ${buildReportDataTable(
-            columns.map((column) => ({ key: column, label: toReportLabel(column) })),
-            rows,
-          )}
-        </section>
-        ${reportFooter ? `<div class="report-footer-note">${toParagraphs(reportFooter)}</div>` : ""}
-      </section>
-    `,
-    paperSize: effectiveTemplate.paperSize,
-    orientation: String(effectiveTemplate.defaultOrientation || "").toUpperCase() === "LANDSCAPE" ? "landscape" : "portrait",
-    showSignature: asBoolean(effectiveTemplate.showSignature),
-    hideHeader: true,
+    title,
+    subtitle,
+    summary,
+    filters,
+    rows,
+    columns,
+    template,
+    generatedBy,
+    branding,
   });
 };
 

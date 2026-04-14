@@ -1,0 +1,40 @@
+﻿{
+    "manifest_version":  3,
+    "name":  "FitFlow Messenger Extension",
+    "description":  "Preset cho Messenger va Facebook Messages. Ho tro sync sidebar that vao CRM.",
+    "version":  "0.4.0",
+    "permissions":  [
+                        "storage",
+                        "tabs",
+                        "activeTab",
+                        "scripting"
+                    ],
+    "host_permissions":  [
+                             "http://localhost/*",
+                             "http://127.0.0.1/*",
+                             "https://*/*"
+                         ],
+    "action":  {
+                   "default_title":  "FitFlow Social Link Bridge",
+                   "default_popup":  "popup.html"
+               },
+    "background":  {
+                       "service_worker":  "background.js"
+                   },
+    "content_scripts":  [
+                            {
+                                "matches":  [
+                                                "http://localhost/*",
+                                                "http://127.0.0.1/*",
+                                                "https://www.messenger.com/*",
+                                                "https://messenger.com/*",
+                                                "https://www.facebook.com/*",
+                                                "https://facebook.com/*"
+                                            ],
+                                "js":  [
+                                           "content-script.js"
+                                       ],
+                                "run_at":  "document_idle"
+                            }
+                        ]
+}

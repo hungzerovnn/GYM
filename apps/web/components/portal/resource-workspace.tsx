@@ -1,25 +1,39 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Printer } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api, ListResponse } from "@/lib/api";
 import { resolveTextDisplay, translateText } from "@/lib/i18n/display";
 import { localizeResourceDefinition } from "@/lib/i18n/portal";
 import { useLocale } from "@/lib/i18n/provider";
-import { printResourceList, printResourceRecord } from "@/lib/print";
-import { buildResourcePrintEntries, getResourceDetailConfig, resolveResourcePrintProfile, toReadableLabel } from "@/lib/resource-meta";
+import { portalPageRegistry } from "@/lib/portal-pages";
+import { printReportDocument, printResourceList, printResourceRecord } from "@/lib/print";
+import { fetchScopedPrintContext, resolveRecordBranchId, toReportBranding } from "@/lib/print-scope";
+import { buildResourceDesignerDataset, buildResourcePrintEntries, getResourceDetailConfig, resolveResourcePrintProfile, toReadableLabel } from "@/lib/resource-meta";
 import { ResourceDefinition } from "@/types/portal";
 import { FilterSidebar } from "../filters/filter-sidebar";
 import { EmptyState } from "../feedback/empty-state";
-import { FormDialog } from "../forms/form-dialog";
 import { PageHeader } from "../layout/page-header";
-import { ResourceDetailDrawer } from "./resource-detail-drawer";
 import { SmartDataTable } from "../table/smart-data-table";
 import { SearchBar } from "../table/search-bar";
-import { ConfirmDialog } from "../shared/confirm-dialog";
 import { PermissionGate } from "../shared/permission-gate";
+import { buildScopedMap, countOverrides, defaultScoped } from "./report-template-designer-shared";
+
+const LazyFormDialog = dynamic(() => import("../forms/form-dialog").then((mod) => mod.FormDialog), {
+  loading: () => null,
+});
+
+const LazyResourceDetailDrawer = dynamic(() => import("./resource-detail-drawer").then((mod) => mod.ResourceDetailDrawer), {
+  loading: () => null,
+});
+
+const LazyConfirmDialog = dynamic(() => import("../shared/confirm-dialog").then((mod) => mod.ConfirmDialog), {
+  loading: () => null,
+});
 
 const resolveResourceFilterSubtitle = (filters: ResourceDefinition["filters"]) => {
   const hasBranch = filters.some((filter) => filter.name === "branchId");
@@ -48,9 +62,12 @@ const resolveResourceFilterSubtitle = (filters: ResourceDefinition["filters"]) =
 export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }) {
   const { locale } = useLocale();
   const { user, isReady } = useAuth();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const localizedResource = useMemo(() => localizeResourceDefinition(resource), [locale, resource]);
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
+  const searchFromUrl = searchParams.get("q") || "";
+  const [search, setSearch] = useState(searchFromUrl);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Record<string, unknown> | null>(null);
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
@@ -65,8 +82,21 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
     () => ({ ...(localizedResource.defaultFilters || {}), ...filters }),
     [filters, localizedResource.defaultFilters],
   );
+  const createInitialValues = useMemo(() => {
+    const defaults: Record<string, unknown> = { ...(localizedResource.defaultFilters || {}) };
+    const selectedBranchId = String(filters.branchId || "").trim();
+
+    if (selectedBranchId) {
+      defaults.branchId = selectedBranchId;
+    }
+
+    return Object.keys(defaults).length ? defaults : null;
+  }, [filters.branchId, localizedResource.defaultFilters]);
+  const printScopeBranchId = String(appliedFilters.branchId || "").trim();
   const canViewResource = !localizedResource.permissionPrefix || user?.permissions.includes(`${localizedResource.permissionPrefix}.view`);
   const canViewSettings = user?.permissions.includes("settings.view");
+  const activePortalPage = portalPageRegistry[pathname];
+  const designerTemplateKey = activePortalPage?.kind === "resource" ? activePortalPage.key : localizedResource.key;
   const visibleFilterNames = useMemo(() => new Set(localizedResource.filters.map((filter) => filter.name)), [localizedResource.filters]);
   const canCreateResource =
     localizedResource.allowCreate !== false &&
@@ -82,6 +112,10 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
     localizedResource.allowDelete !== false &&
     (!localizedResource.permissionPrefix ||
       user?.permissions.includes(`${localizedResource.permissionPrefix}.delete`));
+
+  useEffect(() => {
+    setSearch(searchFromUrl);
+  }, [localizedResource.key, searchFromUrl]);
 
   const queryKey = useMemo(() => [localizedResource.key, search, appliedFilters], [appliedFilters, localizedResource.key, search]);
   const listQuery = useQuery({
@@ -99,12 +133,34 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
     },
   });
   const printTemplateQuery = useQuery({
-    queryKey: ["setting", "print-templates"],
+    queryKey: ["setting", "print-templates", printScopeBranchId],
     queryFn: async () => {
-      const response = await api.get<Record<string, unknown>>("/settings/print-templates");
+      const response = await api.get<Record<string, unknown>>("/settings/print-templates", {
+        params: printScopeBranchId ? { branchId: printScopeBranchId } : undefined,
+      });
       return response.data;
     },
     enabled: isReady && canViewResource && canViewSettings && Boolean(printProfile),
+  });
+  const reportTemplateQuery = useQuery({
+    queryKey: ["setting", "report-templates", printScopeBranchId],
+    queryFn: async () => {
+      const response = await api.get<Record<string, unknown>>("/settings/report-templates", {
+        params: printScopeBranchId ? { branchId: printScopeBranchId } : undefined,
+      });
+      return response.data;
+    },
+    enabled: isReady && canViewResource && canViewSettings,
+  });
+  const companyQuery = useQuery({
+    queryKey: ["setting", "company", printScopeBranchId],
+    queryFn: async () => {
+      const response = await api.get<Record<string, unknown>>("/settings/company", {
+        params: printScopeBranchId ? { branchId: printScopeBranchId } : undefined,
+      });
+      return response.data;
+    },
+    enabled: isReady && canViewResource && canViewSettings,
   });
 
   const deleteMutation = useMutation({
@@ -116,6 +172,9 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
   });
 
   const rows = listQuery.data?.data || [];
+  const reportScopedForms = useMemo(() => buildScopedMap(reportTemplateQuery.data), [reportTemplateQuery.data]);
+  const usesDesignerTemplate = countOverrides(reportScopedForms[designerTemplateKey] || defaultScoped) > 0;
+  const reportBranding = useMemo(() => toReportBranding(companyQuery.data), [companyQuery.data]);
   const printFilters = useMemo(
     () =>
       [
@@ -150,6 +209,7 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
       filters: printFilters,
       template: printTemplateQuery.data,
       profile: printProfile,
+      branding: reportBranding,
     });
   };
 
@@ -167,14 +227,44 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
       }
     }
 
+    const scopedBranchId = resolveRecordBranchId(record, row) || printScopeBranchId;
+    const scopedPrintContext = scopedBranchId
+      ? await fetchScopedPrintContext(scopedBranchId, {
+          includeBranding: true,
+          includePrintTemplate: !usesDesignerTemplate,
+          includeReportTemplate: usesDesignerTemplate,
+        })
+      : null;
+    const effectiveBranding = scopedPrintContext?.branding || reportBranding;
+    const effectivePrintTemplate = scopedPrintContext?.printTemplate || printTemplateQuery.data;
+    const effectiveReportTemplate = scopedPrintContext?.reportTemplate || reportTemplateQuery.data;
+
+    if (usesDesignerTemplate && reportTemplateQuery.data) {
+      const dataset = buildResourceDesignerDataset(localizedResource, record);
+      printReportDocument({
+        templateKey: designerTemplateKey,
+        title: `${localizedResource.title} ${String(record.code || row.code || record.id || row.id || "").trim()}`.trim(),
+        subtitle: localizedResource.subtitle,
+        summary: dataset.summary,
+        filters: printFilters,
+        rows: dataset.rows,
+        columns: dataset.columns,
+        template: effectiveReportTemplate,
+        generatedBy: user?.fullName || user?.username,
+        branding: effectiveBranding,
+      });
+      return;
+    }
+
     printResourceRecord({
       title: `${localizedResource.title} ${String(record.code || row.code || record.id || row.id || "").trim()}`.trim(),
       subtitle: localizedResource.subtitle,
       entries: buildResourcePrintEntries(localizedResource, record),
       record,
       filters: printFilters,
-      template: printTemplateQuery.data,
+      template: effectivePrintTemplate,
       profile: printProfile || undefined,
+      branding: effectiveBranding,
     });
   };
 
@@ -229,6 +319,7 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
           ) : rows.length ? (
             <SmartDataTable
               columns={localizedResource.columns}
+              key={localizedResource.key}
               onDelete={canDeleteResource ? (row) => setDeleting(row) : undefined}
               onEdit={canEditResource ? (row) => setEditing(row) : undefined}
               onPrint={canPrintRows ? handlePrintRow : undefined}
@@ -238,51 +329,59 @@ export function ResourceWorkspace({ resource }: { resource: ResourceDefinition }
           ) : (
             <EmptyState
               description={localizedResource.emptyStateDescription || translateText("Try adjusting filters or create a new record.")}
+              examples={localizedResource.emptyStateExamples}
               title={localizedResource.emptyStateTitle || `${translateText("Khong co du lieu")} ${translateText(localizedResource.title).toLowerCase()}`}
             />
           )}
         </div>
       </div>
 
-      {canCreateResource ? (
-        <FormDialog
+      {canCreateResource && creating ? (
+        <LazyFormDialog
           definition={localizedResource}
           endpoint={localizedResource.endpoint}
-          initialValues={null}
+          initialValues={createInitialValues}
           onClose={() => setCreating(false)}
-          open={creating}
+          open
           queryKey={localizedResource.key}
           title={`${createLabel} ${localizedResource.title}`}
         />
       ) : null}
 
-      {canEditResource ? (
-        <FormDialog
+      {canEditResource && editing ? (
+        <LazyFormDialog
           definition={localizedResource}
           endpoint={localizedResource.endpoint}
           initialValues={editing}
           onClose={() => setEditing(null)}
-          open={Boolean(editing)}
+          open
           queryKey={localizedResource.key}
           title={`${translateText("Edit")} ${translateText(localizedResource.title)}`}
         />
       ) : null}
 
-      <ResourceDetailDrawer
-        onClose={() => setSelected(null)}
-        open={Boolean(selected)}
-        printFilters={printFilters}
-        printTemplate={printTemplateQuery.data}
-        resource={localizedResource}
-        selected={selected}
-      />
+      {selected ? (
+        <LazyResourceDetailDrawer
+          designerBranding={reportBranding}
+          designerGeneratedBy={user?.fullName || user?.username}
+          designerPrintEnabled={usesDesignerTemplate}
+          designerPrintTemplate={reportTemplateQuery.data}
+          designerPrintTemplateKey={designerTemplateKey}
+          onClose={() => setSelected(null)}
+          open
+          printFilters={printFilters}
+          printTemplate={printTemplateQuery.data}
+          resource={localizedResource}
+          selected={selected}
+        />
+      ) : null}
 
-      {canDeleteResource ? (
-        <ConfirmDialog
+      {canDeleteResource && deleting ? (
+        <LazyConfirmDialog
           description={`${translateText("Xoa")} ${translateText(localizedResource.title).toLowerCase()} "${resolveTextDisplay(deleting?.code || deleting?.name || deleting?.fullName)}"?`}
           onCancel={() => setDeleting(null)}
           onConfirm={() => void deleteMutation.mutateAsync(String(deleting?.id))}
-          open={Boolean(deleting)}
+          open
           title={translateText("Confirm deletion")}
         />
       ) : null}

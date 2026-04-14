@@ -43,6 +43,11 @@ const mojibakeKoreanPattern = /(?:[ìíîïðñòóôõö÷øùúûüýþÿëê�
 const mojibakeSegmentPattern =
   /(?:[ÃÂâÐÑÒÓÔÕÖìíîïðñòóôõö÷øùúûüýþÿëêæåœžŸ][\u0080-\u024f\u02c6\u02dc\u2013\u2014\u2018\u2019\u201c\u201d\u2020\u2021\u2022\u2026\u2030\u2039\u203a]*)|(?:[\u0080-\u009f\u02c6\u02dc\u2013\u2014\u2018\u2019\u201c\u201d\u2020\u2021\u2022\u2026\u2030\u2039\u203a]{2,})/gu;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const mojibakeLatin1Pattern = /[\u00a1-\u00bf]/gu;
+const replacementCharPattern = /\uFFFD/gu;
+const controlCharPattern = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu;
+const vietnameseCharPattern = /[\u00c0-\u1ef9\u0110\u0111]/gu;
+const hangulCharPattern = /[\uac00-\ud7a3]/gu;
 
 export const isSupportedLocale = (value: unknown): value is AppLocale =>
   typeof value === "string" && supportedLocales.includes(value as AppLocale);
@@ -90,6 +95,8 @@ export const resolveInitialLocale = (preferredLocale?: unknown): AppLocale => {
 const countOccurrences = (value: string, fragment: string) =>
   fragment ? value.split(fragment).length - 1 : 0;
 
+const countPatternMatches = (value: string, pattern: RegExp) => value.match(pattern)?.length || 0;
+
 const scoreMojibake = (value: string) => {
   if (!value) return 0;
 
@@ -98,8 +105,13 @@ const scoreMojibake = (value: string) => {
     score += countOccurrences(value, fragment) * 5;
   }
 
-  score += (value.match(mojibakeChars)?.length || 0) * 4;
-  score += (value.match(mojibakeKoreanPattern)?.length || 0) * 8;
+  score += countPatternMatches(value, mojibakeChars) * 4;
+  score += countPatternMatches(value, mojibakeLatin1Pattern) * 6;
+  score += countPatternMatches(value, mojibakeKoreanPattern) * 8;
+  score += countPatternMatches(value, replacementCharPattern) * 12;
+  score += countPatternMatches(value, controlCharPattern) * 12;
+  score -= countPatternMatches(value, vietnameseCharPattern) * 2;
+  score -= countPatternMatches(value, hangulCharPattern) * 2;
   return score;
 };
 
@@ -144,7 +156,8 @@ const redecodeSingleByte = (value: string, mode: "latin1" | "cp1252") => {
   }
 
   try {
-    return utf8Decoder.decode(bytes);
+    const decoded = utf8Decoder.decode(bytes);
+    return decoded.includes("\uFFFD") ? null : decoded;
   } catch {
     return null;
   }

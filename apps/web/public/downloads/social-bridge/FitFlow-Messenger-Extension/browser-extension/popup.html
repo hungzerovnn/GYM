@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FitFlow Social Link Bridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">FitFlow Social Link</p>
+        <h1>Browser Extension</h1>
+        <p class="copy">Neu CRM dang mo cung trinh duyet, extension se tu tao session, tu claim thiet bi va tu sync sidebar Messenger. Session token / pair code chi can dung khi ban muon nhap tay.</p>
+      </section>
+
+      <section class="card">
+        <label>
+          <span>Server API</span>
+          <input id="serverUrl" placeholder="http://localhost:6273/api" type="text" />
+        </label>
+        <label>
+          <span>Tenant</span>
+          <input id="tenantKey" placeholder="MASTER" type="text" />
+        </label>
+        <label>
+          <span>Session token</span>
+          <input id="sessionToken" placeholder="Bo trong neu CRM dang mo" type="text" />
+        </label>
+        <label>
+          <span>Pair code</span>
+          <input id="pairCode" placeholder="Hoac ma lien ket neu nhap tay" type="text" />
+        </label>
+        <label>
+          <span>Account hint</span>
+          <input id="accountHint" placeholder="VD: le.tan@branch" type="text" />
+        </label>
+        <label>
+          <span>Provider hints</span>
+          <input id="providerHints" placeholder="messenger / whatsapp / zalo" type="text" />
+        </label>
+        <label>
+          <span>Browser profile</span>
+          <input id="browserProfile" placeholder="Default / Work profile" type="text" />
+        </label>
+      </section>
+
+      <section class="actions">
+        <button id="claimButton" class="primary" type="button">Lien ket va Sync</button>
+        <button id="syncButton" class="secondary" type="button">Sync sidebar</button>
+        <button id="heartbeatButton" class="secondary" type="button">Heartbeat</button>
+        <button id="clearButton" class="ghost" type="button">Clear</button>
+      </section>
+
+      <section class="card muted">
+        <div class="meta-row">
+          <span>Active tab</span>
+          <strong id="activeTab">Detecting...</strong>
+        </div>
+        <div class="meta-row">
+          <span>Device code</span>
+          <strong id="deviceCode">-</strong>
+        </div>
+        <div class="meta-row">
+          <span>Last heartbeat</span>
+          <strong id="lastHeartbeat">-</strong>
+        </div>
+        <div class="meta-row">
+          <span>Last sync</span>
+          <strong id="lastSync">-</strong>
+        </div>
+      </section>
+
+      <section class="card">
+        <p class="label">Device secret</p>
+        <textarea id="deviceSecret" rows="3" readonly></textarea>
+      </section>
+
+      <section class="status" id="statusBox">Ready.</section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

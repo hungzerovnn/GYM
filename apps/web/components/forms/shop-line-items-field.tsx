@@ -33,6 +33,7 @@ interface ShopLineItemsFieldProps {
   label: string;
   mode: "sale" | "return";
   onChange: (value: string) => void;
+  productUsageFilter?: string;
   resetKey: string;
 }
 
@@ -133,6 +134,7 @@ function ShopLineItemsFieldInner({
   label,
   mode,
   onChange,
+  productUsageFilter,
 }: ShopLineItemsFieldProps) {
   const [rows, setRows] = useState<LineItemDraft[]>(() => parseInitialRows(initialItems, initialValue));
   const emitChange = useEffectEvent((value: string) => {
@@ -140,7 +142,7 @@ function ShopLineItemsFieldInner({
   });
 
   const productsQuery = useQuery({
-    queryKey: ["shop-line-products", branchId],
+    queryKey: ["shop-line-products", branchId, productUsageFilter || ""],
     enabled: Boolean(branchId),
     queryFn: async () => {
       const response = await api.get("/products", {
@@ -148,6 +150,7 @@ function ShopLineItemsFieldInner({
           branchId,
           pageSize: 100,
           status: "ACTIVE",
+          ...(productUsageFilter ? { usageType: productUsageFilter } : {}),
           sortBy: "name",
           sortOrder: "asc",
         },
@@ -359,6 +362,6 @@ function ShopLineItemsFieldInner({
 
 export function ShopLineItemsField(props: ShopLineItemsFieldProps) {
   return (
-    <ShopLineItemsFieldInner key={`${props.branchId}:${props.resetKey}:${getLineItemsResetSeed(props.initialItems, props.initialValue)}`} {...props} />
+    <ShopLineItemsFieldInner key={`${props.branchId}:${props.productUsageFilter || ""}:${props.resetKey}:${getLineItemsResetSeed(props.initialItems, props.initialValue)}`} {...props} />
   );
 }

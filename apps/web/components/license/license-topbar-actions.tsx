@@ -12,7 +12,7 @@ export function LicenseTopbarActions({ licenseStatus }: { licenseStatus: License
   const { locale } = useLocale();
 
   return (
-    <div className="flex w-full max-w-[720px] min-w-0 flex-col gap-3 rounded-[1rem] border border-slate-200 bg-white/90 px-4 py-3 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,332px)] xl:items-center xl:gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-3 rounded-[1rem] border border-slate-200 bg-white/90 px-4 py-3 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,332px)] xl:items-center xl:gap-4">
       <div className="min-w-0">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
           <ShieldCheck className="h-4 w-4 text-emerald-600" />
@@ -20,7 +20,7 @@ export function LicenseTopbarActions({ licenseStatus }: { licenseStatus: License
         </div>
         <div
           className={cn(
-            "mt-1 text-[12px] leading-6",
+            "mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px] leading-6",
             licenseStatus.state === "warning"
               ? "text-amber-700"
               : licenseStatus.state === "expired" || licenseStatus.state === "invalid"
@@ -29,8 +29,8 @@ export function LicenseTopbarActions({ licenseStatus }: { licenseStatus: License
           )}
         >
           <span className="font-semibold text-slate-900">{getLicensePlanLabel(licenseStatus.planCode, locale)}</span>
-          <span className="mx-2 text-slate-300">/</span>
-          <span>{getLicenseSummary(licenseStatus, locale)}</span>
+          <span className="text-slate-300">/</span>
+          <span className="min-w-0">{getLicenseSummary(licenseStatus, locale)}</span>
         </div>
       </div>
 

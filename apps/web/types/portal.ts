@@ -31,6 +31,11 @@ export interface ResourceField {
   name: string;
   label: string;
   type: FieldType;
+  virtual?: boolean;
+  hidden?: boolean;
+  advanced?: boolean;
+  readOnly?: boolean;
+  autoManaged?: boolean;
   required?: boolean;
   placeholder?: string;
   span?: 1 | 2 | 3;
@@ -54,6 +59,8 @@ export interface ResourceColumn {
   wrap?: boolean;
   multiline?: boolean;
   align?: "left" | "center" | "right";
+  hideOnMobile?: boolean;
+  hideOnTablet?: boolean;
 }
 
 export interface ResourceFilter {
@@ -78,6 +85,7 @@ export interface ResourceDefinition {
   allowDelete?: boolean;
   emptyStateTitle?: string;
   emptyStateDescription?: string;
+  emptyStateExamples?: string[];
   defaultFilters?: Record<string, string>;
   endpoint: string;
   permissionPrefix: string;
@@ -102,6 +110,7 @@ export interface SettingDefinition {
   baseKey?: string;
   title: string;
   subtitle: string;
+  ownerOnly?: boolean;
   searchPlaceholder?: string;
   createLabel?: string;
   emptyStateTitle?: string;
@@ -110,7 +119,13 @@ export interface SettingDefinition {
   noticeDescription?: string;
   endpoint: string;
   fields: ResourceField[];
-  layout?: "form" | "template" | "communication" | "report-template-manager";
+  layout?:
+    | "form"
+    | "template"
+    | "communication"
+    | "report-template-manager"
+    | "social-hub"
+    | "social-link-center";
   summaryItems?: Array<{
     label: string;
     key: string;
@@ -123,6 +138,7 @@ export interface MenuItem {
   href: string;
   icon?: string;
   description?: string;
+  ownerOnly?: boolean;
 }
 
 export interface MenuGroup {

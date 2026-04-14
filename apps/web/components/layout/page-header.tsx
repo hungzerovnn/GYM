@@ -8,11 +8,11 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-2">
-      <div className="space-y-0.5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-1">
         <p className="page-eyebrow">{translateText("Enterprise Module")}</p>
-        <h1 className="page-title text-[15px]">{translateText(title)}</h1>
-        <p className="page-subtitle max-w-4xl text-[11px]">{translateText(subtitle)}</p>
+        <h1 className="page-title">{translateText(title)}</h1>
+        <p className="page-subtitle max-w-4xl">{translateText(subtitle)}</p>
       </div>
       {actions}
     </div>

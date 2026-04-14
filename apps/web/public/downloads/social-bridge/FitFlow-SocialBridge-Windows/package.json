@@ -1,0 +1,11 @@
+{
+  "name": "gym-social-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local social bridge CLI for linking desktop devices to the GYM social link center",
+  "scripts": {
+    "link": "node ./src/cli.mjs link",
+    "heartbeat": "node ./src/cli.mjs heartbeat",
+    "run": "node ./src/cli.mjs run"
+  }
+}

@@ -4,7 +4,7 @@ import { api, ListResponse } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ResourceFilter } from "@/types/portal";
 import { translateText } from "@/lib/i18n/display";
-import { getViewPermissionForEndpoint } from "@/lib/module-config";
+import { getViewPermissionForEndpoint } from "@/lib/portal-pages";
 import { DateRangeFilter } from "./date-range-filter";
 
 interface FilterSidebarProps {
@@ -73,10 +73,10 @@ export function FilterSidebar({ filters, query, onChange, title, subtitle }: Fil
   );
 
   return (
-    <aside className="card w-full space-y-2 p-2 xl:w-[184px]">
+    <aside className="portal-panel portal-panel-compact min-w-0 w-full space-y-3 overflow-hidden">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700">{title || translateText("Filters")}</p>
-        <h3 className="mt-1 text-[11px] font-bold text-slate-900">{subtitle || translateText("Quick refine")}</h3>
+        <p className="panel-eyebrow">{title || translateText("Filters")}</p>
+        <h3 className="panel-title mt-1">{subtitle || translateText("Quick refine")}</h3>
       </div>
 
       {filters

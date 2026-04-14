@@ -1,18 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Menu, RefreshCw, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Eye, Menu, Printer, RefreshCw, Search } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api, ListResponse } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import { resolveTextDisplay, translateText } from "@/lib/i18n/display";
-import { localizeReportDefinition } from "@/lib/i18n/portal";
+import { localizeReportDefinition, localizeResourceDefinition } from "@/lib/i18n/portal";
 import { useLocale } from "@/lib/i18n/provider";
+import { portalPageRegistry } from "@/lib/portal-pages";
+import { resourceRegistry } from "@/lib/resource-registry";
 import { printReportDocument } from "@/lib/print";
-import { ReportDefinition } from "@/types/portal";
+import { toReportBranding } from "@/lib/print-scope";
+import { ReportDefinition, ResourceDefinition } from "@/types/portal";
 import { EmptyState } from "../feedback/empty-state";
 import { StatusBadge } from "../shared/status-badge";
+import { canUseReportRowAction, getReportRowActionType, ReportRowActionAccess, ReportRowActionType } from "./report-row-action-config";
+
+const LazyReportRowDetailLayer = dynamic(() => import("./report-row-action-runtime").then((mod) => mod.ReportRowDetailLayer), {
+  loading: () => null,
+});
 
 interface ReportPayload {
   summary: Record<string, number>;
@@ -32,6 +42,31 @@ interface ReportFacetConfig {
   allLabel: string;
 }
 
+const REPORT_PERSON_COLUMN_KEYS = new Set([
+  "customerName",
+  "customer",
+  "partner",
+  "staffName",
+  "trainerName",
+  "leadName",
+  "assignedTo",
+  "saleUser",
+  "memberName",
+]);
+
+const REPORT_AVATAR_SOURCE_KEYS_BY_COLUMN: Record<string, string[]> = {
+  customerName: ["customerAvatarUrl", "avatarUrl"],
+  customer: ["customerAvatarUrl", "avatarUrl"],
+  partner: ["customerAvatarUrl", "avatarUrl"],
+  staffName: ["staffAvatarUrl"],
+  trainerName: ["trainerAvatarUrl"],
+  leadName: ["leadAvatarUrl"],
+  assignedTo: ["assignedToAvatarUrl", "assignedUserAvatarUrl"],
+  saleUser: ["saleUserAvatarUrl"],
+  memberName: ["customerAvatarUrl"],
+  name: ["staffAvatarUrl"],
+};
+
 const pageSizeOptions = [15, 30, 50];
 
 const reportSearchPlaceholders: Record<string, string> = {
@@ -43,6 +78,13 @@ const reportSearchPlaceholders: Record<string, string> = {
   "trainer-performance": "Theo ma PT, ten PT...",
   birthday: "Theo ten hoi vien, ma hoi vien, so dien thoai...",
   "follow-up": "Theo ten lead, nhan vien phu trach, ket qua lien he...",
+  "expiring-members-revenue": "Theo ma hop dong, hoi vien, nhom dich vu...",
+  "contract-type-revenue": "Theo loai hop dong, doanh thu, so hop dong...",
+  "service-group-revenue": "Theo nhom dich vu, goi dich vu, doanh thu...",
+  "sales-incentive": "Theo ma nhan vien, ten Sale, chi nhanh...",
+  "pt-incentive": "Theo ma PT, ten PT, chi nhanh...",
+  "social-inbox": "Theo lead, kenh chat, nguoi phu trach, noi dung hoi thoai...",
+  "social-channel-performance": "Theo ten kenh, loai kenh, doanh thu, toc do phan hoi...",
   payment: "Theo ma phieu, doi tac, tham chieu, ghi chu...",
   "contract-remain": "Theo ma hop dong, khach hang, goi dich vu...",
   deposit: "Theo ma coc, khach hang, loai coc...",
@@ -53,6 +95,7 @@ const reportSearchPlaceholders: Record<string, string> = {
   allocation: "Theo ten chi nhanh...",
   "sales-summary": "Theo ten nhan vien, ma nhan vien, chi nhanh...",
   "package-progress": "Theo ma hop dong, khach hang, goi dich vu...",
+  "customer-source": "Theo nguon meta, walk-in, gioi thieu...",
   "card-revenue": "Theo ma phieu, hoi vien, ma hop dong...",
   "staff-review": "Theo ten nhan vien, ma nhan vien, chi nhanh...",
   "lead-status": "Theo ten lead, nguon lead, ket qua lien he...",
@@ -60,25 +103,33 @@ const reportSearchPlaceholders: Record<string, string> = {
 
 const reportColumnLabelOverrides: Record<string, string> = {
   activeContracts: "Hop dong active",
+  activeAgents: "Nhan su phu trach",
+  activeChannels: "Kenh co du lieu",
   activeCustomers: "Khach dang phu trach",
   activeMembers: "Hoi vien active",
   activeTrainers: "PT active",
   ageDays: "Tuoi lead",
   ageTurning: "Tuoi sap toi",
+  achievementPercent: "Muc dat KPI",
   amount: "So tien",
   amountDue: "So tien con no",
   amountPaid: "Da thanh toan",
+  bonusAmount: "Tien thuong",
+  bonusRatePercent: "Ty le thuong",
   attendanceCode: "Ma cham cong",
   attendanceDate: "Ngay cham cong",
   attendanceRate: "Ty le diem danh",
   attendanceStatus: "Trang thai",
   averageContractValue: "Gia tri HD TB",
+  averageFirstResponseMinutes: "Phan hoi dau TB (phut)",
   averageTicket: "Gia tri TB",
+  averageTouchpoints: "Cham / hoi thoai TB",
   birthDate: "Ngay sinh",
   bookedMembers: "Luot dang ky",
   bookedSessions: "So lich dat",
   branch: "Chi nhanh",
   branchId: "Chi nhanh",
+  breachedSla: "Vuot SLA",
   budgetExpected: "Budget du kien",
   cancelledMembers: "Da huy",
   cancelledSessions: "Da huy",
@@ -88,33 +139,46 @@ const reportColumnLabelOverrides: Record<string, string> = {
   collectedRevenue: "Doanh thu",
   collectionRate: "Ty le thu",
   collectionStatus: "Trang thai thu",
+  channel: "Kenh chat",
+  channelType: "Loai kenh",
   completed: "Hoan thanh",
   completedMembers: "Hoan thanh",
   completedSessions: "Da hoan thanh",
   completionRate: "Ty le hoan thanh",
   consumedSessions: "So buoi da dung",
   contractCode: "Ma hop dong",
+  contractCount: "So hop dong",
+  contractSaleType: "Loai hop dong",
   contractStatus: "Trang thai hop dong",
   contractsSold: "Hop dong ban duoc",
   conversionRate: "Ty le chuyen doi",
   convertedLeads: "Lead chuyen doi",
   createdAt: "Ngay tao",
   customerName: "Ho ten hoi vien",
+  customerCount: "So hoi vien",
   customersPerTrainer: "Hoi vien / PT",
+  currentContractValue: "Gia tri HD hien tai",
   date: "Ngay",
   dateFrom: "Tu ngay",
   dateTo: "Den ngay",
   daysToExpire: "Con lai",
   daysUntilBirthday: "Con bao nhieu ngay",
+  dailyTicketRevenue: "Doanh thu ve daily",
   depositRevenue: "Doanh thu coc",
   endDate: "Ngay ket thuc",
   eventCount: "So lan cham cong",
+  expiryStage: "Tinh trang het han",
   firstCheckInAt: "Gio vao",
   followUpsPending: "Follow-up ton",
   groupName: "Nhom khach",
   holdingDeposits: "Tien coc dang giu",
+  hasAppointment: "Co lich hen",
   lastCheckInAt: "Check-in gan nhat",
   lastCheckOutAt: "Gio ra",
+  latestActivityAt: "Tuong tac gan nhat",
+  latestActivityType: "Loai tuong tac cuoi",
+  latestMessagePreview: "Noi dung gan nhat",
+  latestPerformedByName: "Nguoi xu ly cuoi",
   lastLoginAt: "Dang nhap gan nhat",
   lastScheduledAt: "Lich gan nhat",
   lateMinutes: "Di muon",
@@ -122,6 +186,9 @@ const reportColumnLabelOverrides: Record<string, string> = {
   location: "Dia diem",
   machineNames: "Thiet bi",
   memberName: "Hoi vien",
+  memberCount: "Hoi vien trong ky",
+  messageCount: "So luot cham",
+  serviceRevenueGroup: "The hoi vien + PT",
   membershipContracts: "HD hoi vien",
   membershipRevenue: "Doanh thu hoi vien",
   membershipStatus: "Trang thai",
@@ -134,22 +201,31 @@ const reportColumnLabelOverrides: Record<string, string> = {
   nextBirthday: "Sinh nhat toi",
   note: "Ghi chu",
   openLeads: "Lead mo",
+  overdueConversations: "Hoi thoai qua han",
   originalValue: "Gia tri goc",
   outstandingDebt: "Cong no",
   overtimeMinutes: "Tang ca",
   packageName: "Dich vu - goi the",
   paymentMethod: "Thanh toan",
   paymentStatus: "Trang thai thanh toan",
+  pendingWithoutTouch: "Chua cham lan nao",
   performanceIndex: "Chi so hieu suat",
   phone: "Dien thoai",
   priority: "Uu tien",
   progressPercent: "Tien do su dung",
+  previousCollectedAmount: "Da thu truoc ky",
+  previousContractCount: "HD truoc ky",
+  previousRevenue: "Doanh thu truoc ky",
   ptContracts: "HD PT",
   ptRevenue: "Doanh thu PT",
+  productRevenue: "Doanh thu hang hoa",
+  dailyProductRevenueGroup: "Ve daily + hang hoa",
+  receiptCount: "So phieu thu",
   receiptCode: "Ma phieu",
   receiptDate: "Ngay thu",
   remainingSessions: "So buoi con lai",
   remainingValue: "Gia tri con lai",
+  renewContracts: "HD gia han",
   rentedLockers: "Tu dang thue",
   role: "Chuc danh",
   saleUser: "Nhan vien Sale",
@@ -165,14 +241,33 @@ const reportColumnLabelOverrides: Record<string, string> = {
   staffName: "Nhan vien",
   supportedRevenue: "Doanh thu ho tro",
   sessionsPerTrainer: "Buoi / PT",
+  serviceGroup: "Nhom dich vu",
+  serviceGroupCount: "So nhom dich vu",
+  selfSourceRevenue: "DT nguon tu khai thac",
+  paidSourceRevenue: "DT nguon ads / meta",
+  otherSourceRevenue: "DT nguon khac",
+  qualifiedRevenue: "Doanh thu quy doi",
+  queueStatus: "Hang doi xu ly",
+  targetRevenue: "Target doanh thu",
+  targetStatus: "Trang thai KPI",
+  tierBasisRevenue: "Doanh thu xep bac",
+  tierLabel: "Bac thuong",
   totalAmount: "Tong tien",
+  totalConversations: "Tong hoi thoai",
   totalContracts: "Tong hop dong",
   totalCustomers: "Tong khach",
   totalExpense: "Tong chi phi",
   totalMinutes: "Tong phut",
+  totalMembers: "Tong hoi vien",
+  totalReceipts: "Tong phieu thu",
   totalRevenue: "Tong doanh thu",
   totalSessions: "Tong buoi",
   trainerName: "PT phu trach",
+  responseMinutes: "Phan hoi dau (phut)",
+  slaStatus: "SLA",
+  sourceDescriptor: "Nguon / mo ta",
+  touchpointCount: "Tong luot cham",
+  unassignedConversations: "Chua giao nguoi",
   usedSessions: "Da dung",
   utilizationRate: "Ty le tai trong",
   verificationMethods: "Xac thuc",
@@ -184,9 +279,18 @@ const reportColumnLabelOverridesByType: Record<string, Record<string, string>> =
     code: "Ma hoi vien",
   },
   "branch-revenue": {
-    membershipRevenue: "Doanh thu hoi vien",
-    ptRevenue: "Doanh thu PT",
+    serviceRevenueGroup: "The hoi vien + PT",
+    dailyProductRevenueGroup: "Ve daily + hang hoa",
     depositRevenue: "Doanh thu coc",
+    receiptCount: "So phieu thu",
+  },
+  "customer-source": {
+    source: "Nguon khach",
+    memberCount: "Hoi vien trong ky",
+    serviceRevenueGroup: "The hoi vien + PT",
+    dailyProductRevenueGroup: "Ve daily + hang hoa",
+    receiptCount: "So phieu thu",
+    averageTicket: "Gia tri TB",
   },
   birthday: {
     code: "Ma hoi vien",
@@ -270,6 +374,99 @@ const reportColumnLabelOverridesByType: Record<string, Record<string, string>> =
     contractCode: "Ma hop dong",
     customerName: "Ho ten hoi vien",
   },
+  "expiring-members-revenue": {
+    contractCode: "Ma hop dong",
+    customerName: "Hoi vien",
+    saleUser: "Nhan vien Sale",
+    serviceGroup: "Nhom dich vu",
+    packageName: "Goi dich vu",
+    previousContractCount: "HD truoc ky",
+    previousRevenue: "Doanh thu truoc ky",
+    previousCollectedAmount: "Da thu truoc ky",
+    currentContractValue: "Gia tri HD hien tai",
+    expiryStage: "Tinh trang het han",
+  },
+  "contract-type-revenue": {
+    contractSaleType: "Loai hop dong",
+    customerCount: "So hoi vien",
+    collectedAmount: "Da thu",
+    amountDue: "Con no",
+    membershipRevenue: "Doanh thu hoi vien",
+    ptRevenue: "Doanh thu PT",
+    averageContractValue: "Gia tri HD TB",
+  },
+  "service-group-revenue": {
+    serviceGroup: "Nhom dich vu",
+    packageName: "Goi dich vu",
+    customerCount: "So hoi vien",
+    newContracts: "HD moi",
+    renewContracts: "HD gia han",
+    collectedAmount: "Da thu",
+    amountDue: "Con no",
+    averageContractValue: "Gia tri HD TB",
+  },
+  "social-inbox": {
+    code: "Ma lead",
+    leadName: "Ten lead",
+    channel: "Kenh chat",
+    channelType: "Loai kenh",
+    assignedTo: "Nguoi phu trach",
+    queueStatus: "Hang doi xu ly",
+    slaStatus: "SLA",
+    latestActivityType: "Loai tuong tac cuoi",
+    latestActivityAt: "Tuong tac gan nhat",
+    latestMessagePreview: "Noi dung gan nhat",
+    latestPerformedByName: "Nguoi xu ly cuoi",
+    responseMinutes: "Phan hoi dau (phut)",
+    waitMinutes: "Cho phan hoi (phut)",
+    messageCount: "So luot cham",
+    dueDate: "Han xu ly",
+  },
+  "social-channel-performance": {
+    channel: "Kenh chat",
+    channelType: "Loai kenh",
+    totalConversations: "Tong hoi thoai",
+    openLeads: "Lead mo",
+    convertedLeads: "Lead chuyen doi",
+    assignmentRate: "Ty le da giao nguoi",
+    conversionRate: "Ty le chuyen doi",
+    pendingWithoutTouch: "Chua cham lan nao",
+    overdueConversations: "Hoi thoai qua han",
+    averageFirstResponseMinutes: "Phan hoi dau TB (phut)",
+    averageTouchpoints: "Cham / hoi thoai TB",
+    touchpointCount: "Tong luot cham",
+    messageActivities: "Tin nhan",
+    callActivities: "Cuoc goi",
+    appointments: "Lich hen",
+    activeAgents: "Nhan su phu trach",
+    supportedRevenue: "Doanh thu ho tro",
+  },
+  "sales-incentive": {
+    code: "Ma nhan vien",
+    staffName: "Nhan vien Sale",
+    contractsSold: "HD hoi vien",
+    membershipRevenue: "Doanh thu HD",
+    collectedAmount: "Da thu",
+    qualifiedRevenue: "Doanh thu quy doi",
+    targetRevenue: "Target",
+    targetStatus: "Trang thai KPI",
+    bonusRatePercent: "Ty le thuong",
+    bonusAmount: "Tien thuong",
+  },
+  "pt-incentive": {
+    code: "Ma PT",
+    trainerName: "PT phu trach",
+    contractCount: "HD PT",
+    ptRevenue: "Doanh thu goi PT",
+    collectedAmount: "Da thu",
+    qualifiedRevenue: "Doanh thu quy doi",
+    targetRevenue: "Target",
+    targetStatus: "Trang thai KPI",
+    tierBasisRevenue: "Doanh thu xep bac",
+    tierLabel: "Bac thuong",
+    bonusRatePercent: "Ty le thuong",
+    bonusAmount: "Tien thuong",
+  },
   "card-revenue": {
     receiptCode: "Ma phieu",
     receiptDate: "Ngay thu",
@@ -342,6 +539,68 @@ const reportValueLabelOverridesByType: Record<string, Record<string, Record<stri
       "FACEBOOK ADS": "Facebook Ads",
     },
   },
+  "expiring-members-revenue": {
+    expiryStage: {
+      EXPIRED: "Da het han",
+      TODAY: "Het han hom nay",
+      DUE_SOON: "Sap het han 7 ngay",
+      IN_MONTH: "Het han trong thang",
+    },
+  },
+  "contract-type-revenue": {
+    contractSaleType: {
+      NEW: "Moi",
+      RENEW: "Gia han",
+    },
+  },
+  "social-inbox": {
+    channelType: {
+      SOCIAL_NETWORK: "Mang xa hoi",
+      MESSAGING: "Nhan tin / chat",
+      OTHER: "Kenh khac",
+    },
+    queueStatus: {
+      OVERDUE: "Qua han",
+      UNASSIGNED: "Chua giao nguoi",
+      TODAY: "Xu ly hom nay",
+      SOON: "Sap den han",
+      ACTIVE: "Dang tuong tac",
+      PLANNED: "Da len lich",
+    },
+    slaStatus: {
+      BREACHED: "Vuot SLA",
+      AT_RISK: "Canh bao",
+      ON_TRACK: "On track",
+    },
+    latestActivityType: {
+      CALL: "Goi dien",
+      MESSAGE: "Tin nhan",
+      MEETING: "Hen gap",
+      QUOTE: "Bao gia",
+      CONSULTING: "Tu van",
+      NOTE: "Ghi chu",
+      NEW: "Moi tao",
+    },
+  },
+  "social-channel-performance": {
+    channelType: {
+      SOCIAL_NETWORK: "Mang xa hoi",
+      MESSAGING: "Nhan tin / chat",
+      OTHER: "Kenh khac",
+    },
+  },
+  "sales-incentive": {
+    targetStatus: {
+      AT_TARGET: "Dat KPI",
+      UNDER_TARGET: "Chua dat KPI",
+    },
+  },
+  "pt-incentive": {
+    targetStatus: {
+      AT_TARGET: "Dat KPI",
+      UNDER_TARGET: "Chua dat KPI",
+    },
+  },
   "card-revenue": {
     sourceType: {
       contract: "Hop dong",
@@ -354,6 +613,11 @@ const reportFacetConfigByType: Record<string, ReportFacetConfig> = {
   "staff-attendance": { key: "attendanceStatus", label: "Trang thai", allLabel: "All" },
   debt: { key: "collectionStatus", label: "Trang thai thu", allLabel: "All" },
   "follow-up": { key: "urgency", label: "Muc uu tien", allLabel: "All" },
+  "social-inbox": { key: "queueStatus", label: "Hang doi xu ly", allLabel: "All" },
+  "social-channel-performance": { key: "channelType", label: "Loai kenh", allLabel: "All" },
+  "expiring-members-revenue": { key: "expiryStage", label: "Tinh trang het han", allLabel: "All" },
+  "sales-incentive": { key: "targetStatus", label: "Trang thai KPI", allLabel: "All" },
+  "pt-incentive": { key: "targetStatus", label: "Trang thai KPI", allLabel: "All" },
   payment: { key: "type", label: "Loai phieu", allLabel: "All" },
   "contract-remain": { key: "status", label: "Trang thai hop dong", allLabel: "All" },
   deposit: { key: "status", label: "Tinh trang coc", allLabel: "All" },
@@ -391,11 +655,65 @@ const resolveReportValueLabel = (reportType: string, key: string, value: unknown
   return override ? translateText(override) : resolveTextDisplay(value, key);
 };
 
-const formatCell = (reportType: string, key: string, value: unknown) => {
+const getAvatarInitials = (label: string) => {
+  const parts = label
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (!parts.length) return "?";
+
+  return parts
+    .slice(0, 2)
+    .map((item) => item.charAt(0).toUpperCase())
+    .join("");
+};
+
+const isReportPersonColumn = (reportType: string, key: string) => REPORT_PERSON_COLUMN_KEYS.has(key) || (reportType === "kpi" && key === "name");
+
+const resolveReportAvatarUrl = (row: Record<string, unknown>, key: string) => {
+  const sourceKeys = REPORT_AVATAR_SOURCE_KEYS_BY_COLUMN[key] || [];
+  const candidates =
+    sourceKeys.length > 0
+      ? sourceKeys.map((sourceKey) => row[sourceKey])
+      : [row.avatarUrl, row.photoUrl, row.imageUrl, row.profileImageUrl];
+  const resolved = candidates.find((item) => typeof item === "string" && item.trim().length > 0);
+  return typeof resolved === "string" ? resolved.trim() : "";
+};
+
+function InlineAvatarLabel({ avatarUrl, label }: { avatarUrl?: string; label: string }) {
+  const [hasError, setHasError] = useState(false);
+  const initials = getAvatarInitials(label);
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {avatarUrl && !hasError ? (
+        <img
+          alt={label || "Avatar"}
+          className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover"
+          onError={() => setHasError(true)}
+          src={avatarUrl}
+        />
+      ) : (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-semibold text-emerald-700">
+          {initials}
+        </div>
+      )}
+      <span>{label || "-"}</span>
+    </div>
+  );
+}
+
+const formatCell = (reportType: string, key: string, value: unknown, row: Record<string, unknown>) => {
   if (value === null || value === undefined || value === "") return "-";
 
   const normalizedKey = key.toLowerCase();
   const stringValue = typeof value === "string" ? value : String(value);
+  const resolvedLabel = resolveReportValueLabel(reportType, key, value);
+
+  if (isReportPersonColumn(reportType, key)) {
+    return <InlineAvatarLabel avatarUrl={resolveReportAvatarUrl(row, key)} label={resolvedLabel} />;
+  }
 
   if (isCurrencyKey(normalizedKey)) {
     return formatCurrency(Number(value));
@@ -433,7 +751,7 @@ const formatCell = (reportType: string, key: string, value: unknown) => {
     return formatNumber(value);
   }
 
-  return resolveReportValueLabel(reportType, key, value);
+  return resolvedLabel;
 };
 
 const toLabel = (reportType: string, value: string) =>
@@ -522,7 +840,136 @@ const getVisibleColumns = (reportType: string, rows: Array<Record<string, unknow
       "averageTicket",
       "collectionRate",
     ],
-    "branch-revenue": ["branch", "membershipRevenue", "ptRevenue", "depositRevenue"],
+    "expiring-members-revenue": [
+      "contractCode",
+      "customerName",
+      "branch",
+      "saleUser",
+      "serviceGroup",
+      "packageName",
+      "endDate",
+      "daysToExpire",
+      "expiryStage",
+      "currentContractValue",
+      "amountPaid",
+      "amountDue",
+      "previousContractCount",
+      "previousRevenue",
+      "previousCollectedAmount",
+    ],
+    "contract-type-revenue": [
+      "contractSaleType",
+      "contractCount",
+      "customerCount",
+      "totalRevenue",
+      "collectedAmount",
+      "amountDue",
+      "membershipRevenue",
+      "ptRevenue",
+      "averageContractValue",
+    ],
+    "service-group-revenue": [
+      "serviceGroup",
+      "packageName",
+      "contractCount",
+      "customerCount",
+      "newContracts",
+      "renewContracts",
+      "totalRevenue",
+      "collectedAmount",
+      "amountDue",
+      "averageContractValue",
+    ],
+    "social-inbox": [
+      "code",
+      "leadName",
+      "branch",
+      "channel",
+      "channelType",
+      "assignedTo",
+      "status",
+      "queueStatus",
+      "slaStatus",
+      "latestActivityType",
+      "latestActivityAt",
+      "latestMessagePreview",
+      "latestPerformedByName",
+      "messageCount",
+      "responseMinutes",
+      "waitMinutes",
+      "appointmentAt",
+      "nextFollowUpAt",
+      "dueDate",
+    ],
+    "social-channel-performance": [
+      "channel",
+      "channelType",
+      "totalConversations",
+      "openLeads",
+      "convertedLeads",
+      "assignmentRate",
+      "conversionRate",
+      "pendingWithoutTouch",
+      "overdueConversations",
+      "averageFirstResponseMinutes",
+      "averageTouchpoints",
+      "touchpointCount",
+      "messageActivities",
+      "callActivities",
+      "appointments",
+      "activeAgents",
+      "budgetExpected",
+      "supportedRevenue",
+    ],
+    "sales-incentive": [
+      "code",
+      "staffName",
+      "branch",
+      "targetRevenue",
+      "contractsSold",
+      "customerCount",
+      "membershipRevenue",
+      "collectedAmount",
+      "selfSourceRevenue",
+      "paidSourceRevenue",
+      "otherSourceRevenue",
+      "qualifiedRevenue",
+      "achievementPercent",
+      "targetStatus",
+      "bonusRatePercent",
+      "bonusAmount",
+    ],
+    "pt-incentive": [
+      "code",
+      "trainerName",
+      "branch",
+      "specialty",
+      "targetRevenue",
+      "contractCount",
+      "customerCount",
+      "ptRevenue",
+      "collectedAmount",
+      "selfSourceRevenue",
+      "paidSourceRevenue",
+      "otherSourceRevenue",
+      "qualifiedRevenue",
+      "achievementPercent",
+      "targetStatus",
+      "tierBasisRevenue",
+      "tierLabel",
+      "bonusRatePercent",
+      "bonusAmount",
+    ],
+    "branch-revenue": ["branch", "serviceRevenueGroup", "dailyProductRevenueGroup", "depositRevenue", "receiptCount", "totalRevenue"],
+    "customer-source": [
+      "source",
+      "memberCount",
+      "serviceRevenueGroup",
+      "dailyProductRevenueGroup",
+      "receiptCount",
+      "averageTicket",
+      "totalRevenue",
+    ],
     "trainer-performance": ["code", "trainerName", "sessions", "completed", "missed", "activeCustomers"],
     "follow-up": [
       "code",
@@ -681,6 +1128,69 @@ const buildSummaryStripItems = (reportType: string, rows: Array<Record<string, u
         { key: "totalExpense", label: "Chi phi", value: rows.reduce((total, row) => total + Number(row.totalExpense || 0), 0), type: "currency" as const },
         { key: "netProfit", label: "Loi nhuan", value: rows.reduce((total, row) => total + Number(row.netProfit || 0), 0), type: "currency" as const },
       ];
+    case "branch-revenue":
+      return [
+        { key: "serviceRevenueGroup", label: "The hoi vien + PT", value: Number(summary.totalServiceRevenueGroup || 0), type: "currency" as const },
+        { key: "dailyProductRevenueGroup", label: "Ve daily + hang hoa", value: Number(summary.totalDailyProductRevenueGroup || 0), type: "currency" as const },
+        { key: "depositRevenue", label: "Tien coc", value: Number(summary.totalDepositRevenue || 0), type: "currency" as const },
+        { key: "receiptCount", label: "So phieu thu", value: Number(summary.totalReceiptCount || 0), type: "number" as const },
+      ];
+    case "expiring-members-revenue":
+      return [
+        { key: "totalPreviousRevenue", label: "Doanh thu truoc ky", value: Number(summary.totalPreviousRevenue || 0), type: "currency" as const },
+        { key: "totalCurrentRevenue", label: "Gia tri HD hien tai", value: Number(summary.totalCurrentRevenue || 0), type: "currency" as const },
+        { key: "totalCurrentDebt", label: "Con no", value: Number(summary.totalCurrentDebt || 0), type: "currency" as const },
+        { key: "dueSoon7Days", label: "Sap het han 7 ngay", value: Number(summary.dueSoon7Days || 0), type: "number" as const },
+      ];
+    case "contract-type-revenue":
+      return [
+        { key: "newRevenue", label: "HD moi", value: Number(summary.newRevenue || 0), type: "currency" as const },
+        { key: "renewalRevenue", label: "HD gia han", value: Number(summary.renewalRevenue || 0), type: "currency" as const },
+        { key: "totalCollected", label: "Da thu", value: Number(summary.totalCollected || 0), type: "currency" as const },
+        { key: "totalDebt", label: "Con no", value: Number(summary.totalDebt || 0), type: "currency" as const },
+      ];
+    case "service-group-revenue":
+      return [
+        { key: "serviceGroupCount", label: "So nhom DV", value: Number(summary.serviceGroupCount || 0), type: "number" as const },
+        { key: "totalCollected", label: "Da thu", value: Number(summary.totalCollected || 0), type: "currency" as const },
+        { key: "totalDebt", label: "Con no", value: Number(summary.totalDebt || 0), type: "currency" as const },
+      ];
+    case "social-inbox":
+      return [
+        { key: "overdueConversations", label: "Qua han", value: Number(summary.overdueConversations || 0), type: "number" as const },
+        { key: "breachedSla", label: "Vuot SLA", value: Number(summary.breachedSla || 0), type: "number" as const },
+        { key: "unassignedConversations", label: "Chua giao", value: Number(summary.unassignedConversations || 0), type: "number" as const },
+        { key: "appointmentsScheduled", label: "Co lich hen", value: Number(summary.appointmentsScheduled || 0), type: "number" as const },
+      ];
+    case "social-channel-performance":
+      return [
+        { key: "activeChannels", label: "Kenh co du lieu", value: Number(summary.activeChannels || 0), type: "number" as const },
+        { key: "convertedLeads", label: "Lead chuyen doi", value: Number(summary.convertedLeads || 0), type: "number" as const },
+        { key: "pendingWithoutTouch", label: "Chua cham", value: Number(summary.pendingWithoutTouch || 0), type: "number" as const },
+        { key: "supportedRevenue", label: "Doanh thu ho tro", value: Number(summary.supportedRevenue || 0), type: "currency" as const },
+      ];
+    case "sales-incentive":
+      return [
+        { key: "totalQualifiedRevenue", label: "DT quy doi", value: Number(summary.totalQualifiedRevenue || 0), type: "currency" as const },
+        { key: "totalCollected", label: "Da thu", value: Number(summary.totalCollected || 0), type: "currency" as const },
+        { key: "totalBonus", label: "Tong thuong", value: Number(summary.totalBonus || 0), type: "currency" as const },
+        { key: "targetReachedCount", label: "Dat KPI", value: Number(summary.targetReachedCount || 0), type: "number" as const },
+      ];
+    case "pt-incentive":
+      return [
+        { key: "totalQualifiedRevenue", label: "DT quy doi", value: Number(summary.totalQualifiedRevenue || 0), type: "currency" as const },
+        { key: "totalCollected", label: "Da thu", value: Number(summary.totalCollected || 0), type: "currency" as const },
+        { key: "totalBonus", label: "Tong thuong", value: Number(summary.totalBonus || 0), type: "currency" as const },
+        { key: "targetReachedCount", label: "Dat KPI", value: Number(summary.targetReachedCount || 0), type: "number" as const },
+      ];
+    case "customer-source":
+      return [
+        { key: "memberCount", label: "Hoi vien trong ky", value: rows.reduce((total, row) => total + Number(row.memberCount || 0), 0), type: "number" as const },
+        { key: "serviceRevenueGroup", label: "The hoi vien + PT", value: Number(summary.totalServiceRevenueGroup || 0), type: "currency" as const },
+        { key: "dailyProductRevenueGroup", label: "Ve daily + hang hoa", value: Number(summary.totalDailyProductRevenueGroup || 0), type: "currency" as const },
+        { key: "receiptCount", label: "So phieu thu", value: Number(summary.totalReceipts || 0), type: "number" as const },
+        { key: "totalRevenue", label: "Tong doanh thu", value: Number(summary.totalRevenue || 0), type: "currency" as const },
+      ];
     default:
       return [];
   }
@@ -694,14 +1204,133 @@ const rowMatchesSearch = (row: Record<string, unknown>, keyword: string) => {
 
 const formatSummaryValue = (item: SummaryStripItem) => (item.type === "currency" ? formatCurrency(item.value) : formatNumber(item.value));
 
+function NativeActionButton({
+  children,
+  className,
+  disabled = false,
+  title,
+  onPress,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  disabled?: boolean;
+  title: string;
+  onPress: () => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const onPressRef = useRef(onPress);
+
+  useEffect(() => {
+    onPressRef.current = onPress;
+  }, [onPress]);
+
+  useEffect(() => {
+    const button = buttonRef.current;
+    if (!button || disabled) return;
+
+    const handleNativeClick = (event: MouseEvent) => {
+      event.preventDefault();
+      onPressRef.current();
+    };
+
+    button.addEventListener("click", handleNativeClick);
+    return () => {
+      button.removeEventListener("click", handleNativeClick);
+    };
+  }, [disabled]);
+
+  return (
+    <button className={className} disabled={disabled} ref={buttonRef} title={title} type="button">
+      {children}
+    </button>
+  );
+}
+
 export function ReportWorkspace({ report }: { report: ReportDefinition }) {
-  useLocale();
-  const localizedReport = localizeReportDefinition(report);
+  const { locale } = useLocale();
+  const pathname = usePathname();
+  const localizedReport = useMemo(() => localizeReportDefinition(report), [locale, report]);
+  const localizedCustomerResource = useMemo(
+    () =>
+      localizeResourceDefinition({
+        ...resourceRegistry.customers,
+        key: "birthday-customers-report-row",
+        baseKey: "customers",
+      } as ResourceDefinition),
+    [locale],
+  );
+  const localizedReceiptResource = useMemo(
+    () =>
+      localizeResourceDefinition({
+        ...resourceRegistry.receipts,
+        key: "cashbook-receipts-report-row",
+        baseKey: "receipts",
+      } as ResourceDefinition),
+    [locale],
+  );
+  const localizedExpenseResource = useMemo(
+    () =>
+      localizeResourceDefinition({
+        ...resourceRegistry.expenses,
+        key: "cashbook-expenses-report-row",
+        baseKey: "expenses",
+      } as ResourceDefinition),
+    [locale],
+  );
+  const localizedDepositResource = useMemo(
+    () =>
+      localizeResourceDefinition({
+        ...resourceRegistry.deposits,
+        key: "deposit-report-row",
+        baseKey: "deposits",
+      } as ResourceDefinition),
+    [locale],
+  );
+  const localizedContractResource = useMemo(
+    () =>
+      localizeResourceDefinition({
+        ...resourceRegistry.contracts,
+        key: "debt-contracts-report-row",
+        baseKey: "contracts",
+      } as ResourceDefinition),
+    [locale],
+  );
+  const localizedLeadResource = useMemo(
+    () =>
+      localizeResourceDefinition({
+        ...resourceRegistry.leads,
+        key: "lead-status-report-row",
+        baseKey: "leads",
+      } as ResourceDefinition),
+    [locale],
+  );
+  const localizedTrainingSessionResource = useMemo(
+    () =>
+      localizeResourceDefinition({
+        ...resourceRegistry["training-sessions"],
+        key: "class-attendance-report-row",
+        baseKey: "training-sessions",
+      } as ResourceDefinition),
+    [locale],
+  );
   const { user, isReady } = useAuth();
   const reportType = localizedReport.baseKey || localizedReport.key;
+  const activePortalPage = portalPageRegistry[pathname];
+  const activeReportTemplateKey = activePortalPage?.kind === "report" ? activePortalPage.key : reportType;
+  const activeReportTemplateFallbackKeys =
+    activePortalPage?.kind === "report" && activePortalPage.reportKey
+      ? [activePortalPage.reportKey]
+      : [reportType];
   const canViewReport = !localizedReport.permission || user?.permissions.includes(localizedReport.permission);
   const canViewBranches = user?.permissions.includes("branches.view");
   const canViewSettings = user?.permissions.includes("settings.view");
+  const canViewCustomerDetails = user?.permissions.includes("customers.view");
+  const canViewContractDetails = user?.permissions.includes("contracts.view");
+  const canViewDepositDetails = user?.permissions.includes("deposits.view");
+  const canViewLeadDetails = user?.permissions.includes("leads.view");
+  const canViewReceiptDetails = user?.permissions.includes("receipts.view");
+  const canViewExpenseDetails = user?.permissions.includes("expenses.view");
+  const canViewTrainingSessionDetails = user?.permissions.includes("training-sessions.view");
   const [filters, setFilters] = useState<Record<string, string>>({
     branchId: "",
     dateFrom: "",
@@ -714,8 +1343,18 @@ export function ReportWorkspace({ report }: { report: ReportDefinition }) {
   const [modeFilter, setModeFilter] = useState(reportType === "checkin" ? "member" : reportType === "staff-attendance" ? "summary" : "default");
   const [statusFilter, setStatusFilter] = useState("");
   const [datePreset, setDatePreset] = useState<"custom" | "today">("custom");
+  const [selectedRowAction, setSelectedRowAction] = useState<{ row: Record<string, unknown>; type: ReportRowActionType } | null>(null);
   const effectiveBranchId = !isReady || canViewBranches || !user?.branchId || filters.branchId ? filters.branchId : user.branchId || "";
   const effectiveFilters = useMemo(() => ({ ...filters, branchId: effectiveBranchId }), [effectiveBranchId, filters]);
+  useEffect(() => {
+    if (reportType !== "expiring-members-revenue") return;
+    if (filters.dateFrom || filters.dateTo) return;
+
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    setFilters((current) => (current.dateFrom || current.dateTo ? current : { ...current, dateFrom: start, dateTo: end }));
+  }, [filters.dateFrom, filters.dateTo, reportType]);
   const paginationResetKey = useMemo(
     () => JSON.stringify({ filters: effectiveFilters, modeFilter, pageSize, search, statusFilter }),
     [effectiveFilters, modeFilter, pageSize, search, statusFilter],
@@ -760,8 +1399,94 @@ export function ReportWorkspace({ report }: { report: ReportDefinition }) {
       return response.data;
     },
   });
+  const companyQuery = useQuery({
+    queryKey: ["setting", "company", effectiveFilters.branchId || ""],
+    enabled: isReady && canViewReport && canViewSettings,
+    queryFn: async () => {
+      const response = await api.get<Record<string, unknown>>("/settings/company", {
+        params: effectiveFilters.branchId ? { branchId: effectiveFilters.branchId } : undefined,
+      });
+      return response.data;
+    },
+  });
+  const printTemplateQuery = useQuery({
+    queryKey: ["setting", "print-templates", effectiveFilters.branchId || ""],
+    enabled:
+      isReady &&
+      canViewReport &&
+      canViewSettings &&
+      (
+        reportType === "birthday" ||
+        reportType === "class-attendance" ||
+        reportType === "payment" ||
+        reportType === "debt" ||
+        reportType === "contract-remain" ||
+        reportType === "expiring-members-revenue" ||
+        reportType === "package-progress" ||
+        reportType === "deposit" ||
+        reportType === "card-revenue" ||
+        reportType === "lead" ||
+        reportType === "lead-status"
+      ),
+    queryFn: async () => {
+      const response = await api.get<Record<string, unknown>>("/settings/print-templates", {
+        params: effectiveFilters.branchId ? { branchId: effectiveFilters.branchId } : undefined,
+      });
+      return response.data;
+    },
+  });
+  const reportBranding = useMemo(() => toReportBranding(companyQuery.data), [companyQuery.data]);
+  const printReportWithActiveTemplate = (options: Parameters<typeof printReportDocument>[0]) =>
+    printReportDocument({
+      ...options,
+      templateKey: activeReportTemplateKey,
+      templateFallbackKeys: activeReportTemplateFallbackKeys,
+    });
 
   const rows = useMemo(() => reportQuery.data?.rows || [], [reportQuery.data?.rows]);
+  const rowActionType = getReportRowActionType(reportType);
+  const supportsRowActions = Boolean(rowActionType);
+  const rowActionAccess = useMemo<ReportRowActionAccess>(
+    () => ({
+      canViewContractDetails: Boolean(canViewContractDetails),
+      canViewCustomerDetails: Boolean(canViewCustomerDetails),
+      canViewDepositDetails: Boolean(canViewDepositDetails),
+      canViewExpenseDetails: Boolean(canViewExpenseDetails),
+      canViewLeadDetails: Boolean(canViewLeadDetails),
+      canViewReceiptDetails: Boolean(canViewReceiptDetails),
+      canViewTrainingSessionDetails: Boolean(canViewTrainingSessionDetails),
+    }),
+    [
+      canViewContractDetails,
+      canViewCustomerDetails,
+      canViewDepositDetails,
+      canViewExpenseDetails,
+      canViewLeadDetails,
+      canViewReceiptDetails,
+      canViewTrainingSessionDetails,
+    ],
+  );
+  const rowActionResources = useMemo(
+    () => ({
+      contract: localizedContractResource,
+      customer: localizedCustomerResource,
+      deposit: localizedDepositResource,
+      expense: localizedExpenseResource,
+      lead: localizedLeadResource,
+      receipt: localizedReceiptResource,
+      trainingSession: localizedTrainingSessionResource,
+    }),
+    [
+      localizedContractResource,
+      localizedCustomerResource,
+      localizedDepositResource,
+      localizedExpenseResource,
+      localizedLeadResource,
+      localizedReceiptResource,
+      localizedTrainingSessionResource,
+    ],
+  );
+  const canUseRowActions = (row: Record<string, unknown>) => canUseReportRowAction(rowActionType, row, rowActionAccess);
   const facetConfig = reportFacetConfigByType[reportType];
   const visibleColumns = useMemo(() => getVisibleColumns(reportType, rows), [reportType, rows]);
   const filteredRows = useMemo(() => {
@@ -891,7 +1616,7 @@ export function ReportWorkspace({ report }: { report: ReportDefinition }) {
   };
 
   const handlePrint = () => {
-    printReportDocument({
+    printReportWithActiveTemplate({
       reportKey: reportType,
       title: localizedReport.title,
       subtitle: localizedReport.subtitle,
@@ -901,8 +1626,35 @@ export function ReportWorkspace({ report }: { report: ReportDefinition }) {
       columns: visibleColumns,
       template: reportTemplateQuery.data,
       generatedBy: user?.fullName || user?.username,
+      branding: reportBranding,
     });
     setShowExportMenu(false);
+  };
+
+  const handleViewRow = (row: Record<string, unknown>) => {
+    if (!rowActionType || !canUseRowActions(row)) return;
+    setSelectedRowAction({ row, type: rowActionType });
+  };
+
+  const handlePrintRow = async (row: Record<string, unknown>) => {
+    if (!rowActionType || !canUseRowActions(row)) return;
+
+    const { printReportRowAction } = await import("./report-row-action-runtime");
+    await printReportRowAction({
+      actionType: rowActionType,
+      generatedBy: user?.fullName || user?.username,
+      printFilters,
+      reportBranding,
+      reportSubtitle: localizedReport.subtitle,
+      reportTemplate: reportTemplateQuery.data,
+      reportTemplateFallbackKeys: activeReportTemplateFallbackKeys,
+      reportTemplateKey: activeReportTemplateKey,
+      reportTitle: localizedReport.title,
+      reportType,
+      resourcePrintTemplate: printTemplateQuery.data,
+      resources: rowActionResources,
+      row,
+    });
   };
 
   const handleTodayPreset = () => {
@@ -1130,6 +1882,7 @@ export function ReportWorkspace({ report }: { report: ReportDefinition }) {
                             {toLabel(reportType, column)}
                           </th>
                         ))}
+                        {supportsRowActions ? <th className="sticky right-0 bg-slate-100 px-3 py-2.5 text-center font-semibold">{translateText("Thao tac")}</th> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -1141,14 +1894,38 @@ export function ReportWorkspace({ report }: { report: ReportDefinition }) {
                             </td>
                             {visibleColumns.map((column) => (
                               <td className="whitespace-nowrap px-3 py-2.5 align-top text-slate-800" key={column}>
-                                {formatCell(reportType, column, row[column])}
+                                {formatCell(reportType, column, row[column], row)}
                               </td>
                             ))}
+                            {supportsRowActions ? (
+                              <td className="sticky right-0 bg-white/95 px-3 py-2.5 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <NativeActionButton
+                                    className="secondary-button !rounded-[0.45rem] !p-1"
+                                    disabled={!canUseRowActions(row)}
+                                    onPress={() => handleViewRow(row)}
+                                    title={translateText("Xem chi tiet")}
+                                  >
+                                    <Eye className="h-3 w-3" />
+                                  </NativeActionButton>
+                                  <NativeActionButton
+                                    className="secondary-button !rounded-[0.45rem] !p-1"
+                                    disabled={!canUseRowActions(row)}
+                                    onPress={() => {
+                                      void handlePrintRow(row);
+                                    }}
+                                    title={translateText("In chung tu")}
+                                  >
+                                    <Printer className="h-3 w-3" />
+                                  </NativeActionButton>
+                                </div>
+                              </td>
+                            ) : null}
                           </tr>
                         ))
                       ) : (
                         <tr>
-                          <td className="px-3 py-8 text-center text-[12px] text-slate-500" colSpan={visibleColumns.length + 1}>
+                          <td className="px-3 py-8 text-center text-[12px] text-slate-500" colSpan={visibleColumns.length + 1 + (supportsRowActions ? 1 : 0)}>
                             {translateText("Khong co ban ghi phu hop")}
                           </td>
                         </tr>
@@ -1178,6 +1955,26 @@ export function ReportWorkspace({ report }: { report: ReportDefinition }) {
               </>
             )}
           </div>
+
+          {selectedRowAction ? (
+            <LazyReportRowDetailLayer
+              actionType={selectedRowAction.type}
+              generatedBy={user?.fullName || user?.username}
+              onClose={() => setSelectedRowAction(null)}
+              printFilters={printFilters}
+              reportBranding={reportBranding}
+              reportSubtitle={localizedReport.subtitle}
+              reportTemplate={reportTemplateQuery.data}
+              reportTemplateFallbackKeys={activeReportTemplateFallbackKeys}
+              reportTemplateKey={activeReportTemplateKey}
+              reportTitle={localizedReport.title}
+              reportType={reportType}
+              resourcePrintTemplate={printTemplateQuery.data}
+              resources={rowActionResources}
+              row={selectedRowAction.row}
+              toLabel={toLabel}
+            />
+          ) : null}
         </section>
       </div>
     </div>

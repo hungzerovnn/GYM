@@ -38,6 +38,7 @@ const masterDataDomainByField: Record<string, string> = {
   source: "attendanceSource",
   roundingMode: "roundingMode",
   taxRoundingMode: "roundingMode",
+  usageType: "productUsageType",
 };
 
 const titleCase = (value: string) =>
@@ -77,7 +78,17 @@ const uncapitalize = (value: string) => value.charAt(0).toLowerCase() + value.sl
 
 const finalizeTranslation = (value: string) => normalizeUtf8Text(value);
 
-const normalizeStatusKey = (value: string) => value.trim().toUpperCase().replaceAll(" ", "_").replaceAll("-", "_");
+const statusKeyAliases: Record<string, string> = {
+  AUTOCLOSED: "AUTO_CLOSED",
+  CHECKIN: "CHECK_IN",
+  CHECKOUT: "CHECK_OUT",
+  NEVERCHECKEDIN: "NEVER_CHECKED_IN",
+};
+
+const normalizeStatusKey = (value: string) => {
+  const normalized = value.trim().toUpperCase().replaceAll(" ", "_").replaceAll("-", "_");
+  return statusKeyAliases[normalized] || normalized;
+};
 
 const stripVietnameseDiacritics = (value: string) =>
   value
@@ -97,6 +108,7 @@ const canonicalizeLookupKey = (value: string) => normalizeLookupText(value).toLo
 type LocaleBundle = ReturnType<typeof getLocaleBundle>;
 
 const exactTextLookupCache = new WeakMap<LocaleBundle, Map<string, string>>();
+const translatedTextCache = new Map<string, string>();
 
 const getCanonicalExactTextMap = (bundle: LocaleBundle) => {
   const cached = exactTextLookupCache.get(bundle);
@@ -320,41 +332,66 @@ export const translateText = (input: unknown, locale: AppLocale = getCurrentLoca
   const source = normalizeUtf8Text(input);
   if (!source) return "";
 
+  const cacheKey = `${locale}::${source}`;
+  const cached = translatedTextCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const bundle = getLocaleBundle(locale);
   const lookupSource = normalizeLookupText(source);
   const exact = bundle.exactText[source] || bundle.exactText[lookupSource] || getCanonicalExactTextMap(bundle).get(canonicalizeLookupKey(source));
   if (exact) {
-    return finalizeTranslation(exact);
+    const resolved = finalizeTranslation(exact);
+    translatedTextCache.set(cacheKey, resolved);
+    return resolved;
   }
 
   const normalizedStatus = normalizeStatusKey(lookupSource || source);
   if (bundle.statuses[normalizedStatus]) {
-    return finalizeTranslation(bundle.statuses[normalizedStatus]);
+    const resolved = finalizeTranslation(bundle.statuses[normalizedStatus]);
+    translatedTextCache.set(cacheKey, resolved);
+    return resolved;
+  }
+
+  const enumByCode = translateEnumCode(lookupSource || source, locale);
+  if (enumByCode) {
+    const resolved = finalizeTranslation(enumByCode);
+    translatedTextCache.set(cacheKey, resolved);
+    return resolved;
   }
 
   const patternTranslated = translatePatternText(lookupSource || source, locale);
   if (patternTranslated) {
+    translatedTextCache.set(cacheKey, patternTranslated);
     return patternTranslated;
   }
 
   const extendedPatternTranslated = translateExtendedPatternText(lookupSource || source, locale);
   if (extendedPatternTranslated) {
+    translatedTextCache.set(cacheKey, extendedPatternTranslated);
     return extendedPatternTranslated;
   }
 
   const phraseTranslated = applyPhraseTranslations(source, locale);
   if (phraseTranslated !== source) {
-    return finalizeTranslation(phraseTranslated);
+    const resolved = finalizeTranslation(phraseTranslated);
+    translatedTextCache.set(cacheKey, resolved);
+    return resolved;
   }
 
   if (lookupSource && lookupSource !== source) {
     const normalizedPhraseTranslated = applyPhraseTranslations(lookupSource, locale);
     if (normalizedPhraseTranslated !== lookupSource) {
-      return finalizeTranslation(normalizedPhraseTranslated);
+      const resolved = finalizeTranslation(normalizedPhraseTranslated);
+      translatedTextCache.set(cacheKey, resolved);
+      return resolved;
     }
   }
 
-  return finalizeTranslation(source);
+  const resolved = finalizeTranslation(source);
+  translatedTextCache.set(cacheKey, resolved);
+  return resolved;
 };
 
 export const translateStatus = (value?: unknown, locale: AppLocale = getCurrentLocale()) => {
@@ -371,6 +408,20 @@ export const translateEnum = (domain: string, value?: unknown, locale: AppLocale
   if (!normalized) return "";
   const bundle = getLocaleBundle(locale);
   return bundle.enums[domain]?.[normalized] || bundle.statuses[normalized] || translateText(sourceTextToLabel(normalized), locale);
+};
+
+export const translateEnumCode = (value?: unknown, locale: AppLocale = getCurrentLocale()) => {
+  const normalized = normalizeUtf8Text(value).trim();
+  if (!normalized) return "";
+
+  const bundle = getLocaleBundle(locale);
+  for (const domainValues of Object.values(bundle.enums)) {
+    if (domainValues[normalized]) {
+      return domainValues[normalized];
+    }
+  }
+
+  return "";
 };
 
 export const translatePermissionModule = (moduleName?: string | null, locale: AppLocale = getCurrentLocale()) => {

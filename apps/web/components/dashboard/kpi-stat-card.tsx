@@ -9,9 +9,9 @@ interface KPIStatCardProps {
 
 export function KPIStatCard({ label, value, type = "number" }: KPIStatCardProps) {
   return (
-    <div className="card p-3">
-      <p className="text-[11px] text-slate-500">{translateText(label)}</p>
-      <h3 className="mt-1.5 text-[14px] font-bold text-slate-900">{type === "currency" ? formatCurrency(value) : formatNumber(value)}</h3>
+    <div className="portal-panel portal-panel-compact">
+      <p className="stat-label">{translateText(label)}</p>
+      <h3 className="stat-value mt-1.5">{type === "currency" ? formatCurrency(value) : formatNumber(value)}</h3>
     </div>
   );
 }

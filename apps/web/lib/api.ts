@@ -9,6 +9,11 @@ let accessToken: string | null = null;
 let refreshPromise: Promise<string> | null = null;
 let tenantKey: string | null = null;
 
+const normalizeTenantKey = (value: string | null | undefined) => {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized || null;
+};
+
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
   if (typeof window !== "undefined") {
@@ -21,10 +26,10 @@ export const setAccessToken = (token: string | null) => {
 };
 
 export const setTenantKey = (value: string | null) => {
-  tenantKey = value;
+  tenantKey = normalizeTenantKey(value);
   if (typeof window !== "undefined") {
-    if (value) {
-      window.localStorage.setItem("fitflow_tenant_key", value);
+    if (tenantKey) {
+      window.localStorage.setItem("fitflow_tenant_key", tenantKey);
     } else {
       window.localStorage.removeItem("fitflow_tenant_key");
     }
@@ -34,7 +39,7 @@ export const setTenantKey = (value: string | null) => {
 export const getTenantKey = () => {
   if (tenantKey) return tenantKey;
   if (typeof window !== "undefined") {
-    tenantKey = window.localStorage.getItem("fitflow_tenant_key");
+    tenantKey = normalizeTenantKey(window.localStorage.getItem("fitflow_tenant_key"));
   }
   return tenantKey;
 };
@@ -67,6 +72,10 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => {
+    const activeTenantKey = normalizeTenantKey(response.headers?.["x-active-tenant-key"]);
+    if (activeTenantKey && activeTenantKey !== getTenantKey()) {
+      setTenantKey(activeTenantKey);
+    }
     response.data = normalizeUtf8Payload(response.data);
     return response;
   },

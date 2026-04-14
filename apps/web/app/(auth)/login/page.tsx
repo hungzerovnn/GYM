@@ -46,9 +46,31 @@ type OtpChallenge = {
 type LoginDatabase = {
   code: string;
   name: string;
-  databaseName?: string;
-  databaseHost?: string;
   isSystem?: boolean;
+};
+
+type LoginBranding = {
+  appName: string;
+  brandLabel: string;
+  brandDescription: string;
+  logoUrl: string;
+};
+
+const defaultLoginBranding: LoginBranding = {
+  appName: "FitFlow Enterprise",
+  brandLabel: "FITNESS ERP",
+  brandDescription: "Multi-branch gym operations, CRM, contract, training, finance, lockers and reports in one admin portal.",
+  logoUrl: "",
+};
+
+const resolveAssetUrl = (value: string) => {
+  const normalized = value.trim();
+  if (!normalized) return "";
+  if (/^https?:\/\//i.test(normalized)) return normalized;
+
+  const apiBase = String(api.defaults.baseURL || "").replace(/\/api\/?$/, "");
+  if (!apiBase) return normalized;
+  return `${apiBase}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
 };
 
 export default function LoginPage() {
@@ -65,6 +87,8 @@ export default function LoginPage() {
   const [otpLoading, setOtpLoading] = useState(true);
   const [sendingOtp, setSendingOtp] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState("/dashboard");
+  const [branding, setBranding] = useState<LoginBranding>(defaultLoginBranding);
+  const [logoLoadError, setLogoLoadError] = useState(false);
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -90,7 +114,7 @@ export default function LoginPage() {
         if (!isMounted) return;
         const availableDatabases = response.data?.length
           ? response.data
-          : [{ code: "MASTER", name: translateText("Master system"), databaseName: "fitness_management", isSystem: true }];
+          : [{ code: "MASTER", name: translateText("Master system"), isSystem: true }];
         setDatabases(availableDatabases);
         setError(null);
         const storedTenant = getTenantKey();
@@ -100,7 +124,7 @@ export default function LoginPage() {
         setTenantKey(nextTenant);
       } catch {
         if (!isMounted) return;
-        const fallbackDatabases = [{ code: "MASTER", name: translateText("Master system"), databaseName: "fitness_management", isSystem: true }];
+        const fallbackDatabases = [{ code: "MASTER", name: translateText("Master system"), isSystem: true }];
         setDatabases(fallbackDatabases);
         const storedTenant = getTenantKey();
         const nextTenant = fallbackDatabases.find((item) => item.code === storedTenant)?.code || "MASTER";
@@ -140,6 +164,26 @@ export default function LoginPage() {
 
     void loadOtpConfig();
 
+    const loadBranding = async () => {
+      try {
+        const response = await api.get<Partial<LoginBranding>>("/auth/login-branding");
+        if (!isMounted) return;
+        setBranding({
+          appName: String(response.data?.appName || defaultLoginBranding.appName).trim() || defaultLoginBranding.appName,
+          brandLabel: String(response.data?.brandLabel || defaultLoginBranding.brandLabel).trim() || defaultLoginBranding.brandLabel,
+          brandDescription:
+            String(response.data?.brandDescription || defaultLoginBranding.brandDescription).trim() ||
+            defaultLoginBranding.brandDescription,
+          logoUrl: resolveAssetUrl(String(response.data?.logoUrl || "")),
+        });
+      } catch {
+        if (!isMounted) return;
+        setBranding(defaultLoginBranding);
+      }
+    };
+
+    void loadBranding();
+
     return () => {
       isMounted = false;
     };
@@ -164,10 +208,23 @@ export default function LoginPage() {
     }
   }, []);
 
+  useEffect(() => {
+    setLogoLoadError(false);
+    if (typeof document !== "undefined") {
+      document.title = branding.appName;
+    }
+  }, [branding.appName, branding.logoUrl]);
+
   const otpSummary = useMemo(() => {
     if (!otpInfo?.enabled) return null;
     return `${translateText("OTP")} ${otpInfo.codeLength} ${translateText("so")}, ${translateText("hieu luc")} ${otpInfo.ttlMinutes} ${translateText("phut")}`;
   }, [otpInfo]);
+  const hasBrandImage = Boolean(branding.logoUrl && !logoLoadError);
+
+  const formatDatabaseOptionLabel = (database: LoginDatabase) => {
+    const translatedName = translateText(database.name);
+    return translatedName;
+  };
 
   const handleSendOtp = async () => {
     setError(null);
@@ -221,16 +278,25 @@ export default function LoginPage() {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-brand">
-          <div className="login-logo">FF</div>
-          <div>
-            <div className="mb-3 flex justify-end">
+          <div className="login-brand-top">
+            <div className="min-w-0">
+              {hasBrandImage ? (
+                <img
+                  alt={branding.appName}
+                  className="mb-3 block max-h-[5rem] w-auto max-w-full object-contain object-left"
+                  onError={() => setLogoLoadError(true)}
+                  src={branding.logoUrl}
+                />
+              ) : null}
+              <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">{branding.brandLabel}</p>
+              <h1 className="mt-2 text-3xl font-semibold text-slate-900">{branding.appName}</h1>
+            </div>
+            <div className="login-brand-actions">
               <LanguageSwitcher />
             </div>
-            <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">{translateText("Fitness ERP")}</p>
-            <h1 className="text-3xl font-semibold text-slate-900">{translateText("FitFlow Enterprise")}</h1>
-            <p className="mt-2 text-sm text-slate-500">
-              {translateText("Multi-branch gym operations, CRM, contract, training, finance, lockers and reports in one admin portal.")}
-            </p>
+          </div>
+          <div className="login-brand-copy">
+            <p className="text-sm text-slate-500">{branding.brandDescription}</p>
             {licenseStatus ? (
               <div className="mt-4 rounded-[1.2rem] border border-slate-200 bg-white/80 px-4 py-4 text-sm text-slate-600">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">{translateText("License")}</div>
@@ -273,7 +339,7 @@ export default function LoginPage() {
             >
               {databases.map((database) => (
                 <option key={database.code} value={database.code}>
-                  {database.name} [{database.code}] {database.databaseName ? `- ${database.databaseName}` : ""}
+                  {formatDatabaseOptionLabel(database)}
                 </option>
               ))}
             </select>
@@ -281,7 +347,7 @@ export default function LoginPage() {
           </label>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            {translateText("Chon dung CSDL de he thong vao dung data cua tung khach hang/tenant.")}
+            {translateText("Chon nguon du lieu de dang nhap.")}
           </div>
 
           {otpInfo?.enabled ? (

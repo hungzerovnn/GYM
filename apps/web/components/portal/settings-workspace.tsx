@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
+import dynamic from "next/dynamic";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Printer } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Printer } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatDate, formatDateTime } from "@/lib/format";
@@ -13,15 +15,23 @@ import { resolveTextDisplay, translateText } from "@/lib/i18n/display";
 import { localizeSettingDefinition } from "@/lib/i18n/portal";
 import { useLocale } from "@/lib/i18n/provider";
 import type { AppLocale } from "@/lib/i18n/runtime";
-import { settingsRegistry } from "@/lib/module-config";
+import { socialCategoryLabels, socialInboxPath, socialLinkCenterPath, socialModuleCatalog, socialPerformancePath } from "@/lib/social-module-config";
+import { settingsRegistry } from "@/lib/settings-registry";
 import { printSettingPreview } from "@/lib/print";
 import { SettingDefinition } from "@/types/portal";
 import { EmptyState } from "../feedback/empty-state";
-import { FormDialog } from "../forms/form-dialog";
 import { PageHeader } from "../layout/page-header";
-import { ReportTemplateWorkspace } from "./report-template-workspace";
 import { StatusBadge } from "../shared/status-badge";
+import { SocialLinkCenterWorkspace } from "./social-link-center-workspace";
 import { SearchBar } from "../table/search-bar";
+
+const LazyFormDialog = dynamic(() => import("../forms/form-dialog").then((mod) => mod.FormDialog), {
+  loading: () => null,
+});
+
+const LazyReportTemplateWorkspace = dynamic(() => import("./report-template-workspace").then((mod) => mod.ReportTemplateWorkspace), {
+  loading: () => null,
+});
 
 type SettingFormValues = Record<string, string | undefined>;
 type SettingSummaryCardType = "text" | "status" | "date" | "datetime" | "raw";
@@ -111,6 +121,28 @@ const getFieldSections = (setting: SettingDefinition) =>
     return groups;
   }, {});
 
+const getVisibleFieldSections = (setting: SettingDefinition, showAdvanced: boolean) =>
+  setting.fields.reduce<Record<string, SettingDefinition["fields"]>>((groups, field) => {
+    if (field.hidden) return groups;
+    if (field.advanced && !showAdvanced) return groups;
+    const section = field.section || translateText("Cau hinh");
+    groups[section] = [...(groups[section] || []), field];
+    return groups;
+  }, {});
+
+const socialConnectorFieldLabels: Record<string, string> = {
+  accountId: "Ma OA / ma kenh",
+  pageId: "Ma page / ma kenh (ky thuat)",
+  phoneNumberId: "Phone number ID (ky thuat)",
+  businessAccountId: "Business / WABA ID (ky thuat)",
+  accessToken: "Mat khau / ma ket noi",
+  appSecret: "App secret (ky thuat)",
+  webhookVerifyToken: "Ma xac minh webhook",
+  webhookSecret: "Ma bao mat webhook",
+};
+
+const formatSocialMissingField = (field: string) => socialConnectorFieldLabels[field] || field;
+
 const renderSummaryValue = (card: SettingSummaryCard) => {
   const { value, type, fieldKey } = card;
   if (value === null || value === undefined || value === "") return "-";
@@ -170,11 +202,16 @@ function SettingEditorPanel({
   const settingBaseKey = getSettingBaseKey(localizedSetting);
   const queryClient = useQueryClient();
   const schema = useMemo(() => buildSchema(localizedSetting), [localizedSetting]);
-  const sections = useMemo(() => getFieldSections(localizedSetting), [localizedSetting]);
   const canPreview = canPrintSettingPreview(localizedSetting);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+  const hasAdvancedFields = localizedSetting.fields.some((field) => field.advanced);
+  const sections = useMemo(
+    () => getVisibleFieldSections(localizedSetting, showAdvanced),
+    [localizedSetting, showAdvanced],
+  );
 
   const form = useForm<SettingFormValues>({
     resolver: zodResolver(schema),
@@ -184,6 +221,7 @@ function SettingEditorPanel({
   const watchedPrinterMode = settingBaseKey === "print-templates" ? String(form.watch("printerMode") || "BROWSER_DIALOG") : "";
   const watchedPrinterName =
     settingBaseKey === "print-templates" ? String(form.watch("defaultPrinterName") || "").trim() : "";
+  const usesStoredPrinterMode = settingBaseKey === "print-templates" && watchedPrinterMode !== "BROWSER_DIALOG";
 
   const query = useQuery({
     queryKey: ["setting", localizedSetting.key, watchedBranchId || ""],
@@ -225,7 +263,12 @@ function SettingEditorPanel({
     mutationFn: async (values: SettingFormValues) => {
       const payload = Object.fromEntries(
         localizedSetting.fields.flatMap((field) => {
-          const transformed = transformValue(toSettingStoredValue(localizedSetting, field.name, values[field.name], locale), field.type);
+          const storedValue = toSettingStoredValue(localizedSetting, field.name, values[field.name], locale);
+          if (settingBaseKey === "program-branding") {
+            return [[field.name, typeof storedValue === "string" ? storedValue : ""]];
+          }
+
+          const transformed = transformValue(storedValue, field.type);
           return transformed === undefined ? [] : [[field.name, transformed]];
         }),
       );
@@ -234,6 +277,9 @@ function SettingEditorPanel({
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["setting", localizedSetting.key] });
+      if ((localizedSetting.key || "").startsWith("social-")) {
+        await queryClient.invalidateQueries({ queryKey: ["social-connectors-status"] });
+      }
     },
   });
 
@@ -297,7 +343,7 @@ function SettingEditorPanel({
 
   const handlePrintPreview = () => {
     const values = form.getValues();
-    const previewSections = Object.entries(sections).map(([sectionName, fields]) => ({
+    const previewSections = Object.entries(getFieldSections(localizedSetting)).map(([sectionName, fields]) => ({
       title: sectionName,
       items: fields.map((field) => ({
         label: field.label,
@@ -322,7 +368,7 @@ function SettingEditorPanel({
   }
 
   return (
-    <div className={compact ? "card p-5" : "grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]"}>
+    <div className={compact ? "settings-workspace card p-5" : "settings-workspace grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]"}>
       {!compact ? (
         <aside className="card space-y-3 p-4">
           <div>
@@ -347,11 +393,57 @@ function SettingEditorPanel({
           await mutation.mutateAsync(values);
         })}
       >
+        {settingBaseKey.startsWith("social-") ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-900">
+            <div className="font-semibold">{translateText("Che do cau hinh gon cho van hanh")}</div>
+            <div className="mt-1 text-emerald-800">
+              {translateText("He thong se tu sinh webhook URL, ma xac minh va cac thong so ky thuat noi bo. Nguoi dung van hanh chi can cap nhat user, so dien thoai, ma OA hoac mat khau / ma ket noi o cac truong co ban ben duoi.")}
+            </div>
+            <div className="mt-1 text-emerald-700">
+              {translateText("Neu kenh can them App Secret hoac ma page chinh chu de ket noi production, ky thuat vien co the mo muc Nang cao de bo sung sau.")}
+            </div>
+          </div>
+        ) : null}
+
+        {hasAdvancedFields ? (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-600">
+            <div>
+              <div className="font-semibold text-slate-900">{translateText("Cau hinh nang cao")}</div>
+              <div className="mt-1">
+                {translateText("Chi can mo khi ky thuat vien can doi token, webhook, API secret hoac cac ma ket noi dac thu.")}
+              </div>
+            </div>
+            <button
+              className="secondary-button shrink-0"
+              onClick={() => setShowAdvanced((current) => !current)}
+              type="button"
+            >
+              {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              {showAdvanced ? translateText("An nang cao") : translateText("Hien nang cao")}
+            </button>
+          </div>
+        ) : null}
+
         {Object.entries(sections).map(([sectionName, fields]) => (
           <section className="space-y-3" key={sectionName}>
             <div className="border-b border-slate-200 pb-2">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">{translateText(sectionName)}</p>
             </div>
+
+            {usesStoredPrinterMode && sectionName === "Thong so in" ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+                <div className="font-semibold">
+                  {translateText("Che do may in nay hien chi luu cau hinh, chua the tu dong doi Destination trong hop thoai in cua trinh duyet.")}
+                </div>
+                <div className="mt-1 text-amber-800">
+                  {translateText(
+                    watchedPrinterMode === "SYSTEM_NAME"
+                      ? `May in dang chon: ${watchedPrinterName || "Chua chon may in"}. Khi bam In, Chrome / Edge van co the hien Save as PDF hoac may in cuoi cung da chon.`
+                      : "Che do may in IP / Network hien dang duoc luu de danh dau cau hinh, nhung web app chua gui lenh in truc tiep den dia chi may in nay.",
+                  )}
+                </div>
+              </div>
+            ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
               {fields.filter((field) => {
@@ -409,9 +501,9 @@ function SettingEditorPanel({
                   <label className={`field ${spanClass}`} key={field.name}>
                     <span>{translateText(field.label)}</span>
                     {field.type === "textarea" ? (
-                      <textarea {...form.register(field.name)} placeholder={translateText(field.placeholder || field.description || "")} />
+                      <textarea {...form.register(field.name)} disabled={field.readOnly} placeholder={translateText(field.placeholder || field.description || "")} />
                     ) : field.type === "select" ? (
-                      <select {...form.register(field.name)}>
+                      <select {...form.register(field.name)} disabled={field.readOnly}>
                         <option value="">{translateText("Select")}</option>
                         {options.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -421,7 +513,7 @@ function SettingEditorPanel({
                       </select>
                     ) : settingBaseKey === "print-templates" && field.name === "defaultPrinterName" ? (
                       options.length ? (
-                        <select {...form.register(field.name)}>
+                        <select {...form.register(field.name)} disabled={field.readOnly}>
                           <option value="">{translateText("Chon may in he thong")}</option>
                           {options.map((option) => (
                             <option key={option.value} value={option.value}>
@@ -432,13 +524,14 @@ function SettingEditorPanel({
                       ) : (
                         <input
                           {...form.register(field.name)}
+                          disabled={field.readOnly}
                           placeholder={translateText("Khong doc duoc danh sach may in he thong tren may nay. Co the nhap tay neu can.")}
                           type="text"
                         />
                       )
                     ) : settingBaseKey === "print-templates" && field.name === "paperSize" ? (
                       Array.isArray(printerPaperSizesQuery.data) && printerPaperSizesQuery.data.length ? (
-                        <select {...form.register(field.name)}>
+                        <select {...form.register(field.name)} disabled={field.readOnly}>
                           {printerPaperSizesQuery.data.map((option: Record<string, unknown>) => {
                             const value = String(option.name || option.displayName || "");
                             const label = String(option.displayName || option.name || value);
@@ -452,6 +545,7 @@ function SettingEditorPanel({
                       ) : (
                         <input
                           {...form.register(field.name)}
+                          disabled={field.readOnly}
                           placeholder={translateText(field.placeholder || field.description || "")}
                           type="text"
                         />
@@ -461,6 +555,7 @@ function SettingEditorPanel({
                         <div className="flex flex-col gap-2 md:flex-row">
                           <input
                             {...form.register(field.name)}
+                            disabled={field.readOnly}
                             placeholder={translateText(field.placeholder || field.description || "")}
                             type="text"
                           />
@@ -497,12 +592,14 @@ function SettingEditorPanel({
                     ) : (
                       <input
                         {...form.register(field.name)}
+                        disabled={field.readOnly}
                         placeholder={translateText(field.placeholder || field.description || "")}
                         step={field.type === "number" || field.type === "currency" ? "any" : undefined}
                         type={inputType}
                       />
                     )}
                     {field.description ? <small className="!text-slate-500">{translateText(field.description)}</small> : null}
+                    {field.autoManaged ? <small className="!text-emerald-700">{translateText("He thong tu quan ly truong nay.")}</small> : null}
                     {field.name === "logoUrl" && logoUploadError ? <small>{logoUploadError}</small> : null}
                     {error ? <small>{error}</small> : null}
                   </label>
@@ -554,7 +651,7 @@ function BirthdayTemplateWorkspace({ setting }: { setting: SettingDefinition }) 
   const rows = query.data?.data || [];
 
   return (
-    <div className="space-y-4">
+    <div className="settings-workspace space-y-4">
       <PageHeader
         title={localizedSetting.title}
         subtitle={localizedSetting.subtitle}
@@ -634,25 +731,29 @@ function BirthdayTemplateWorkspace({ setting }: { setting: SettingDefinition }) 
         </div>
       </div>
 
-      <FormDialog
-        definition={localizedSetting}
-        endpoint={localizedSetting.endpoint}
-        initialValues={null}
-        onClose={() => setCreating(false)}
-        open={creating}
-        queryKey="setting"
-        title={createLabel}
-      />
+      {creating ? (
+        <LazyFormDialog
+          definition={localizedSetting}
+          endpoint={localizedSetting.endpoint}
+          initialValues={null}
+          onClose={() => setCreating(false)}
+          open
+          queryKey="setting"
+          title={createLabel}
+        />
+      ) : null}
 
-      <FormDialog
-        definition={localizedSetting}
-        endpoint={localizedSetting.endpoint}
-        initialValues={editing}
-        onClose={() => setEditing(null)}
-        open={Boolean(editing)}
-        queryKey="setting"
-        title={translateText("Cap nhat mau")}
-      />
+      {editing ? (
+        <LazyFormDialog
+          definition={localizedSetting}
+          endpoint={localizedSetting.endpoint}
+          initialValues={editing}
+          onClose={() => setEditing(null)}
+          open
+          queryKey="setting"
+          title={translateText("Cap nhat mau")}
+        />
+      ) : null}
     </div>
   );
 }
@@ -681,7 +782,7 @@ function CommunicationWorkspace({ setting }: { setting: SettingDefinition }) {
     .at(-1);
 
   return (
-    <div className="space-y-4">
+    <div className="settings-workspace space-y-4">
       <PageHeader title={localizedSetting.title} subtitle={localizedSetting.subtitle} />
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -714,11 +815,275 @@ function CommunicationWorkspace({ setting }: { setting: SettingDefinition }) {
   );
 }
 
+function SocialWorkspace({ setting }: { setting: SettingDefinition }) {
+  const { locale } = useLocale();
+  const localizedSetting = useMemo(() => localizeSettingDefinition(setting), [locale, setting]);
+  const connectorStatusQuery = useQuery({
+    queryKey: ["social-connectors-status"],
+    queryFn: async () => {
+      const response = await api.get("/social/connectors/status");
+      return (response.data || { providers: [] }) as {
+        providers?: Array<Record<string, unknown>>;
+      };
+    },
+  });
+  const platformSettings = socialModuleCatalog.map((item) => settingsRegistry[item.settingKey]).filter(Boolean);
+  const platformQueries = useQueries({
+    queries: platformSettings.map((item) => ({
+      queryKey: ["setting", item.key],
+      queryFn: async () => {
+        const response = await api.get(item.endpoint);
+        return (response.data || {}) as Record<string, unknown>;
+      },
+    })),
+  });
+  const connectorStatusMap = new Map(
+    (connectorStatusQuery.data?.providers || []).map((item) => [String(item.settingKey || ""), item] as const),
+  );
+
+  const modules = socialModuleCatalog.map((item, index) => {
+    const data = platformQueries[index]?.data || {};
+    const connectorStatus = connectorStatusMap.get(item.settingKey) || {};
+    const accountLabel =
+      String(data.accountLabel || data.pageName || data.username || data.accountId || data.pageId || "")
+        .trim();
+    return {
+      ...item,
+      isActive: Boolean(data.isActive),
+      branchId: String(data.branchId || "").trim(),
+      accountLabel,
+      updatedAt: String(data.updatedAt || "").trim(),
+      isReady: Boolean(connectorStatus.isReady),
+      syncedConversations: Number(connectorStatus.syncedConversations || 0),
+      syncedMessages: Number(connectorStatus.syncedMessages || 0),
+      unreadConversations: Number(connectorStatus.unreadConversations || 0),
+      failedWebhookEvents: Number(connectorStatus.failedWebhookEvents || 0),
+      lastWebhookAt: String(connectorStatus.lastWebhookAt || "").trim(),
+      webhookUrl: String(connectorStatus.webhookUrl || "").trim(),
+      missingFields: Array.isArray(connectorStatus.missingFields)
+        ? connectorStatus.missingFields.map((field) => formatSocialMissingField(String(field)))
+        : [],
+    };
+  });
+
+  const activeModules = modules.filter((item) => item.isActive).length;
+  const readyModules = modules.filter((item) => item.isReady).length;
+  const syncedConversations = modules.reduce((total, item) => total + item.syncedConversations, 0);
+  const failedWebhookEvents = modules.reduce((total, item) => total + item.failedWebhookEvents, 0);
+  const latestUpdated = modules
+    .flatMap((item) => [item.updatedAt, item.lastWebhookAt])
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  const visibleSocialCategories = (["social-network", "messaging"] as const).filter((category) =>
+    modules.some((item) => item.category === category),
+  );
+  const operationalLinks = [
+    {
+      href: socialLinkCenterPath,
+      title: "Lien ket thiet bi",
+      description: "Tao phien lien ket tu PC bridge, QR / deeplink mobile va browser extension de tan dung tai khoan dang login san.",
+      eyebrow: "Link center",
+    },
+    {
+      href: socialInboxPath,
+      title: "Trung tam hoi thoai",
+      description: "Hang doi lead / chat, SLA, nguoi phu trach va noi dung tuong tac gan nhat.",
+      eyebrow: "Van hanh",
+    },
+    {
+      href: socialPerformancePath,
+      title: "Hieu suat kenh",
+      description: "So luong hoi thoai, toc do phan hoi, lead chuyen doi va doanh thu ho tro theo tung kenh.",
+      eyebrow: "Bao cao nhanh",
+    },
+    {
+      href: "/reports/follow-up",
+      title: "Follow-up / lich hen",
+      description: "Cong viec qua han, lich hen sap toi va nhac viec xu ly lead.",
+      eyebrow: "CSKH",
+    },
+    {
+      href: "/members/leads",
+      title: "Ho so lead",
+      description: "Mo danh sach lead de cap nhat thong tin, trang thai va lich su cham soc chi tiet.",
+      eyebrow: "CRM",
+    },
+  ];
+
+  return (
+    <div className="settings-workspace space-y-4">
+      <PageHeader title={localizedSetting.title} subtitle={localizedSetting.subtitle} />
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <div className="card p-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{translateText("Module dang bat")}</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            {activeModules}/{modules.length}
+          </p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{translateText("Connector san sang")}</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            {readyModules}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {translateText("Kenh dang bat")}: {activeModules}
+          </p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{translateText("Hoi thoai da sync")}</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            {syncedConversations}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {translateText("Webhook loi")}: {failedWebhookEvents}
+          </p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{translateText("Webhook / cap nhat gan nhat")}</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900">{latestUpdated ? formatDateTime(latestUpdated) : "-"}</p>
+          <p className="mt-1 text-xs text-slate-500">{translateText("Theo doi ca webhook that va cau hinh kenh trong cung mot hub.")}</p>
+        </div>
+      </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">{translateText("Loi tat van hanh")}</h2>
+          <p className="text-xs text-slate-500">{translateText("Di nhanh tu cau hinh kenh sang man hinh xu ly hoi thoai va bao cao lien quan.")}</p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {operationalLinks.map((item) => (
+            <Link
+              className="card block rounded-[1rem] border border-slate-200 bg-[linear-gradient(135deg,rgba(16,185,129,0.08),rgba(255,255,255,0.95))] p-4 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
+              href={item.href}
+              key={item.href}
+              scroll={false}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">{translateText(item.eyebrow)}</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{translateText(item.title)}</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">{translateText(item.description)}</p>
+              <div className="mt-4 text-xs font-medium text-emerald-700">{translateText("Mo man hinh")} {"->"}</div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <div className="space-y-5">
+        {visibleSocialCategories.map((category) => {
+          const categoryModules = modules.filter((item) => item.category === category);
+          return (
+            <section className="space-y-3" key={category}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-900">{socialCategoryLabels[category]}</h2>
+                  <p className="text-xs text-slate-500">
+                    {translateText("Tong so module")}: {categoryModules.length}
+                  </p>
+                </div>
+                <div className="text-xs text-slate-500">
+                  {translateText("Dang bat")}: {categoryModules.filter((item) => item.isActive).length}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {categoryModules.map((item) => (
+                  <Link
+                    className="card block rounded-[1rem] border border-slate-200 p-4 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
+                    href={`/social/${item.slug}`}
+                    key={item.settingKey}
+                    scroll={false}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">{item.subtitle}</p>
+                      </div>
+                      <StatusBadge value={item.isActive ? "ACTIVE" : "INACTIVE"} />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {item.capabilities.map((capability) => (
+                        <span
+                          className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                          key={capability}
+                        >
+                          {capability}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 space-y-1.5 text-xs text-slate-600">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{translateText("Kenh / profile")}</span>
+                        <span className="max-w-[58%] truncate text-right font-medium text-slate-900">
+                          {item.accountLabel || "-"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{translateText("Pham vi")}</span>
+                        <span className="font-medium text-slate-900">
+                          {item.branchId ? translateText("Theo chi nhanh") : translateText("Toan he thong")}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{translateText("Tinh trang connector")}</span>
+                        <span className="font-medium text-slate-900">
+                          {item.isReady ? translateText("San sang") : translateText("Chua day du")}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{translateText("Hoi thoai / tin nhan")}</span>
+                        <span className="font-medium text-slate-900">
+                          {item.syncedConversations}/{item.syncedMessages}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{translateText("Chua doc / webhook loi")}</span>
+                        <span className="font-medium text-slate-900">
+                          {item.unreadConversations}/{item.failedWebhookEvents}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{translateText("Webhook / cap nhat")}</span>
+                        <span className="font-medium text-slate-900">
+                          {item.lastWebhookAt ? formatDateTime(item.lastWebhookAt) : item.updatedAt ? formatDateTime(item.updatedAt) : "-"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {item.missingFields.length ? (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+                        {translateText("Thieu truong")}: {item.missingFields.slice(0, 3).join(", ")}
+                      </div>
+                    ) : null}
+
+                    {item.webhookUrl ? (
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+                        <span className="font-semibold text-slate-900">{translateText("Webhook")}: </span>
+                        <span className="break-all">{item.webhookUrl}</span>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 text-xs font-medium text-emerald-700">{translateText("Mo cau hinh")} {"->"}</div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsWorkspace({ setting }: { setting: SettingDefinition }) {
   const { locale } = useLocale();
   const { user, isReady } = useAuth();
   const localizedSetting = useMemo(() => localizeSettingDefinition(setting), [locale, setting]);
   const canViewSettings = user?.permissions.includes("settings.view");
+  const isSystemOwner = Boolean(user?.roleCodes.includes("system_owner"));
 
   if (!isReady) {
     return <div className="card h-56 animate-pulse bg-slate-100" />;
@@ -733,8 +1098,17 @@ export function SettingsWorkspace({ setting }: { setting: SettingDefinition }) {
     );
   }
 
+  if (localizedSetting.ownerOnly && !isSystemOwner) {
+    return (
+      <EmptyState
+        description={translateText("Chi chu he thong moi duoc cap nhat module nhan dien chuong trinh nay.")}
+        title={translateText("Khong co quyen truy cap module")}
+      />
+    );
+  }
+
   if (localizedSetting.layout === "report-template-manager" || localizedSetting.key === "report-templates" || localizedSetting.baseKey === "report-templates") {
-    return <ReportTemplateWorkspace setting={localizedSetting} />;
+    return <LazyReportTemplateWorkspace setting={localizedSetting} />;
   }
 
   if (localizedSetting.layout === "template" || localizedSetting.key === "birthday-template" || localizedSetting.baseKey === "birthday-template") {
@@ -743,6 +1117,14 @@ export function SettingsWorkspace({ setting }: { setting: SettingDefinition }) {
 
   if (localizedSetting.layout === "communication" || localizedSetting.key === "communication" || localizedSetting.baseKey === "communication") {
     return <CommunicationWorkspace setting={localizedSetting} />;
+  }
+
+  if (localizedSetting.layout === "social-hub" || localizedSetting.key === "social-hub" || localizedSetting.baseKey === "social-hub") {
+    return <SocialWorkspace setting={localizedSetting} />;
+  }
+
+  if (localizedSetting.layout === "social-link-center" || localizedSetting.key === "social-link-center" || localizedSetting.baseKey === "social-link-center") {
+    return <SocialLinkCenterWorkspace setting={localizedSetting} />;
   }
 
   return (

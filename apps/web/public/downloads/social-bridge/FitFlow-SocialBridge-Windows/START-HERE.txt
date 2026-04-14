@@ -1,0 +1,21 @@
+﻿FITFLOW SOCIAL BRIDGE - START HERE
+
+1. Chay "Install-SocialBridge-Windows.ps1" de cai vao may.
+2. Sau khi cai xong, tren Desktop se co:
+   - Social Bridge Console
+   - Lien ket Social Bridge
+   - Chay Heartbeat Social Bridge
+   - Cai Browser Extension
+3. Dang nhap CRM va kenh that tren cung may / trinh duyet.
+4. Neu dung Browser Extension:
+   - mo tab CRM va tab Messenger / Zalo / WhatsApp trong cung trinh duyet
+   - bam popup extension roi bam "Lien ket va Sync"
+   - session token / pair code chi dung khi auto-link khong bat duoc
+5. Neu dung Social Bridge Console:
+   - dung "Lien ket Social Bridge" de nhap session token / pair code
+
+Extension:
+- Folder extension nam trong browser-extension
+- Mo chrome://extensions hoac edge://extensions
+- Bat Developer mode
+- Load unpacked va tro den folder browser-extension

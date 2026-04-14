@@ -41,6 +41,9 @@ const statusStyles: Record<string, string> = {
   TODAY: "bg-orange-100 text-orange-700",
   SOON: "bg-cyan-100 text-cyan-700",
   PLANNED: "bg-slate-100 text-slate-700",
+  ON_TRACK: "bg-emerald-100 text-emerald-700",
+  AT_RISK: "bg-amber-100 text-amber-700",
+  BREACHED: "bg-rose-100 text-rose-700",
   UNSCHEDULED: "bg-slate-100 text-slate-500",
   CLEARED: "bg-emerald-100 text-emerald-700",
   HIGH: "bg-rose-100 text-rose-700",
@@ -88,6 +91,18 @@ const statusStyles: Record<string, string> = {
   APPROVE: "bg-emerald-100 text-emerald-700",
   SYSTEM: "bg-slate-100 text-slate-700",
   CUSTOM: "bg-cyan-100 text-cyan-700",
+  BRIDGE_READY: "bg-emerald-100 text-emerald-700",
+  API_CONNECTED: "bg-cyan-100 text-cyan-700",
+  DEMO_ONLY: "bg-rose-100 text-rose-700",
+  QUEUE_READY: "bg-amber-100 text-amber-700",
+  NOT_CONFIGURED: "bg-slate-100 text-slate-600",
+  QUEUED: "bg-amber-100 text-amber-700",
+  QUEUED_API: "bg-cyan-100 text-cyan-700",
+  QUEUED_BRIDGE: "bg-emerald-100 text-emerald-700",
+  DISPATCHING: "bg-sky-100 text-sky-700",
+  SENT: "bg-emerald-100 text-emerald-700",
+  FAILED: "bg-rose-100 text-rose-700",
+  OUTBOX_ONLY: "bg-slate-100 text-slate-700",
 };
 
 export function StatusBadge({ value }: { value?: string | null }) {

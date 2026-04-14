@@ -1,277 +1,70 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Printer, Upload } from "lucide-react";
+import { KeyRound, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { api, ListResponse } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { resolveTextDisplay, translateText } from "@/lib/i18n/display";
-import { printResourceRecord } from "@/lib/print";
-import { buildResourcePrintEntries, getResourceDetailConfig, resolveResourcePrintProfile } from "@/lib/resource-meta";
+import { printReportDocument, printResourceRecord } from "@/lib/print";
+import { fetchScopedPrintContext, resolveRecordBranchId } from "@/lib/print-scope";
+import { buildResourceDesignerDataset, buildResourcePrintEntries, getResourceDetailConfig, resolveResourcePrintProfile } from "@/lib/resource-meta";
 import { ResourceDefinition } from "@/types/portal";
 import { EmptyState } from "../feedback/empty-state";
+import { ContractConversionDialog } from "./contract-conversion-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 import { AttachmentList } from "../shared/attachment-list";
 import { AuditLogTable } from "../shared/audit-log-table";
 import { DetailDrawer, DetailSection, DetailSummaryItem } from "../shared/detail-drawer";
 import { StatusBadge } from "../shared/status-badge";
 import { Timeline } from "../shared/timeline";
+import {
+  PreviewAssetCard,
+  formatSnapshotValue,
+  renderInfoCard,
+  renderMiniTable,
+  toApiErrorMessage,
+} from "./resource-detail-drawer-shared";
 
-const renderMiniTable = (
-  headers: string[],
-  rows: Array<Array<React.ReactNode>>,
-  emptyTitle: string,
-  emptyDescription: string,
-) => {
-  if (!rows.length) {
-    return <EmptyState description={emptyDescription} title={emptyTitle} />;
-  }
-
-  return (
-    <div className="overflow-auto rounded-[0.8rem] border border-slate-200">
-      <table className="min-w-full text-[11px]">
-        <thead className="bg-slate-50 text-left text-slate-500">
-          <tr>
-            {headers.map((header) => (
-              <th className="px-3 py-2 font-semibold" key={header}>
-                {translateText(header)}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr className="border-t border-slate-100 align-top" key={index}>
-              {row.map((cell, cellIndex) => (
-                <td className="px-3 py-2" key={cellIndex}>
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-};
-
-const renderInfoCard = (
-  eyebrow: string,
-  title: string,
-  description?: React.ReactNode,
-) => (
-  <div className="rounded-[0.8rem] border border-slate-200 bg-slate-50 p-4">
-    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">{translateText(eyebrow)}</p>
-    <p className="mt-1.5 text-[14px] font-semibold text-slate-900">{title || "-"}</p>
-    {description ? <div className="mt-1.5 text-[12px] text-slate-500">{description}</div> : null}
-  </div>
+const LazyAttendanceMachineConfigSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.AttendanceMachineConfigSection),
+  { loading: () => null },
 );
-
-const formatSnapshotValue = (value: unknown) => {
-  if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "string") return value;
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-};
-
-const toApiErrorMessage = (error: unknown, fallback: string) => {
-  if (error && typeof error === "object" && "response" in error) {
-    const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
-    if (typeof message === "string" && message.trim()) {
-      return message;
-    }
-  }
-
-  return fallback;
-};
-
-const resolveAssetUrl = (value: string) => {
-  const normalized = value.trim();
-  if (!normalized) return "";
-  if (/^https?:\/\//i.test(normalized)) return normalized;
-
-  const apiBase = String(api.defaults.baseURL || "").replace(/\/api\/?$/, "");
-  if (!apiBase) return normalized;
-  return `${apiBase}${normalized.startsWith("/") ? normalized : `/${normalized}`}`;
-};
-
-type AttendanceMachineOperationRecord = Record<string, unknown>;
-
-type AttendanceMachineConnectorRecord = {
-  key?: string;
-  displayName?: string;
-  vendor?: string;
-};
-
-type AttendanceMachineConnectorActionRecord = {
-  supported?: boolean;
-  message?: string;
-  metadata?: Record<string, unknown>;
-  [key: string]: unknown;
-};
-
-type AttendanceMachineOperationResult = {
-  action?: string;
-  title?: string;
-  description?: string;
-  fileName?: string;
-  machineCode?: string;
-  machineName?: string;
-  branchName?: string;
-  syncedAt?: string;
-  exportedAt?: string;
-  machineTime?: string;
-  timeZone?: string;
-  totalRecords?: number;
-  totalBranchRecords?: number;
-  staffCount?: number;
-  customerCount?: number;
-  missingCodeCount?: number;
-  importedCount?: number;
-  duplicateCount?: number;
-  unmatchedCount?: number;
-  pulledFromDeviceCount?: number;
-  deviceUserCount?: number;
-  deletedCount?: number;
-  totalMachineLogCount?: number;
-  remainingLogCount?: number;
-  rangeFrom?: string;
-  rangeTo?: string;
-  rangeCoveredAllLogs?: boolean;
-  deleteStrategy?: string;
-  connector?: AttendanceMachineConnectorRecord;
-  connectorResult?: AttendanceMachineConnectorActionRecord;
-  preview?: AttendanceMachineOperationRecord[];
-  records?: AttendanceMachineOperationRecord[];
-  machineUsersPreview?: AttendanceMachineOperationRecord[];
-  devicePreview?: AttendanceMachineOperationRecord[];
-};
-
-type AttendanceMachineOperationState = {
-  selectedId: string;
-  result: AttendanceMachineOperationResult;
-};
-
-type AttendanceMachineMaintenancePayload = {
-  action: string;
-  personType?: "STAFF" | "CUSTOMER";
-  personId?: string;
-  displayName?: string;
-  appAttendanceCode?: string;
-  machineCode?: string;
-  machineUserId?: string;
-  cardCode?: string;
-  faceImageUrl?: string;
-  faceImageBase64?: string;
-  dateFrom?: string;
-  dateTo?: string;
-};
-
-type AttendanceEnrollmentDraft = {
-  personType: "STAFF" | "CUSTOMER";
-  personId: string;
-  machineUserId: string;
-  cardCode: string;
-  faceImageUrl: string;
-};
-
-type AttendanceMachineLogRangeDraft = {
-  dateFrom: string;
-  dateTo: string;
-};
-
-const attendanceMachineRecordTypeLabel = (value: unknown) => {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "STAFF") return translateText("Nhan vien");
-  if (normalized === "CUSTOMER") return translateText("Hoi vien");
-  return translateText("Su kien");
-};
-
-const csvEscape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-
-const downloadTextFile = (content: string, filename: string, contentType: string) => {
-  const blob = new Blob([content], { type: contentType });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  window.setTimeout(() => {
-    window.URL.revokeObjectURL(url);
-    anchor.remove();
-  }, 1500);
-};
-
-const downloadAttendanceMachineExport = (records: AttendanceMachineOperationRecord[], filename: string) => {
-  if (!records.length) return;
-
-  const headers = [
-    translateText("Loai"),
-    translateText("Ma"),
-    translateText("Ten"),
-    translateText("Ma cham cong"),
-    translateText("Trang thai"),
-    translateText("Ghi chu"),
-    translateText("Thoi diem"),
-    translateText("Nguon"),
-  ];
-
-  const rows = records.map((record) =>
-    [
-      attendanceMachineRecordTypeLabel(record.recordType),
-      record.entityCode || "",
-      record.displayName || "",
-      record.attendanceCode || record.identifier || "",
-      record.status || record.eventType || "",
-      record.note || "",
-      record.eventAt ? formatDateTime(String(record.eventAt)) : "",
-      record.source || "",
-    ].map(csvEscape),
-  );
-
-  const csv = ["\uFEFF" + headers.map(csvEscape).join(","), ...rows.map((row) => row.join(","))].join("\n");
-  const nextFilename = filename.replace(/\.json$/iu, ".csv");
-  downloadTextFile(csv, nextFilename, "text/csv;charset=utf-8;");
-};
-
-const downloadAttendanceMachineLogRangeExport = (
-  records: AttendanceMachineOperationRecord[],
-  filename: string,
-) => {
-  if (!records.length) return;
-
-  const headers = [
-    translateText("Ma tren may"),
-    translateText("Thoi diem"),
-    translateText("Loai"),
-    translateText("Xac thuc"),
-    translateText("Nguon"),
-    translateText("Chi tiet"),
-  ];
-
-  const rows = records.map((record) =>
-    [
-      record.machineUserId || record.attendanceCode || record.entityCode || record.rawCode || "",
-      record.eventAt ? formatDateTime(String(record.eventAt)) : "",
-      record.eventType || record.status || "",
-      record.verificationMethod || "",
-      record.source || "",
-      record.note || record.rawCode || "",
-    ].map(csvEscape),
-  );
-
-  const csv = ["\uFEFF" + headers.map(csvEscape).join(","), ...rows.map((row) => row.join(","))].join("\n");
-  const nextFilename = filename.replace(/\.json$/iu, ".csv");
-  downloadTextFile(csv, nextFilename, "text/csv;charset=utf-8;");
-};
+const LazyAttendanceMachineBridgeSecretSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.AttendanceMachineBridgeSecretSection),
+  { loading: () => null },
+);
+const LazyAttendanceMachineOperationsSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.AttendanceMachineOperationsSection),
+  { loading: () => null },
+);
+const LazyAttendanceMachineOperationResultSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.AttendanceMachineOperationResultSection),
+  { loading: () => null },
+);
+const LazyAttendanceMachineEventsSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.AttendanceMachineEventsSection),
+  { loading: () => null },
+);
+const LazyMemberPresenceStatusSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.MemberPresenceStatusSection),
+  { loading: () => null },
+);
+const LazyMemberPresenceToggleSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.MemberPresenceToggleSection),
+  { loading: () => null },
+);
+const LazyMemberPresenceSessionsSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.MemberPresenceSessionsSection),
+  { loading: () => null },
+);
+const LazyStaffAttendanceInfoSection = dynamic(
+  () => import("./resource-detail-drawer-attendance-sections").then((mod) => mod.StaffAttendanceInfoSection),
+  { loading: () => null },
+);
 
 type OperationContractCloneLabels = {
   overview: string;
@@ -354,8 +147,18 @@ const resourceCloneFieldLabelOverrides: Record<string, Record<string, string>> =
     categoryName: "Danh muc vat tu",
     groupName: "Nhom cap phat",
     stockQuantity: "So luong ton",
+    availableTowelQuantity: "San sang",
+    activeIssueQuantity: "Dang phat",
+    laundryQuantity: "Dang giat",
+    lostQuantity: "Mat",
+    damagedQuantity: "Hu",
     minStockQuantity: "Nguong toi thieu",
     stockAlertLabel: "Muc canh bao",
+    towelRentalQuantity: "SL thue luot",
+    towelSaleQuantity: "SL da ban",
+    towelRentalRevenue: "Doanh thu thue",
+    towelSaleRevenue: "Doanh thu ban",
+    lastTowelReceiptDate: "Lan thu tien gan nhat",
     lastPurchaseDate: "Lan nhap gan nhat",
   },
   "operations-loyalty": {
@@ -388,65 +191,6 @@ const formatDateRangeLabel = (startValue: unknown, endValue: unknown) => {
   return `${formattedStart} - ${formattedEnd}`;
 };
 
-function PreviewAssetCard({
-  eyebrow,
-  title,
-  assetUrl,
-  description,
-  openLabel,
-  emptyMessage,
-  altFallback,
-}: {
-  eyebrow: string;
-  title: string;
-  assetUrl?: string;
-  description?: React.ReactNode;
-  openLabel?: string;
-  emptyMessage?: string;
-  altFallback?: string;
-}) {
-  const [hasError, setHasError] = useState(false);
-  const normalizedUrl = String(assetUrl || "").trim();
-  const canPreview = Boolean(normalizedUrl) && !hasError;
-
-  return (
-    <div className="rounded-[0.8rem] border border-slate-200 bg-slate-50 p-4 md:col-span-2">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">{translateText(eyebrow)}</p>
-          <p className="mt-1.5 text-[14px] font-semibold text-slate-900">{title || "-"}</p>
-        </div>
-        {normalizedUrl ? (
-          <a
-            className="secondary-button !h-auto !rounded-[0.58rem] !px-3 !py-1.5 text-[11px]"
-            href={normalizedUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            {translateText(openLabel || "Mo tep anh")}
-          </a>
-        ) : null}
-      </div>
-      {description ? <div className="mt-1.5 text-[12px] text-slate-500">{description}</div> : null}
-      <div className="mt-3 overflow-hidden rounded-[0.75rem] border border-slate-200 bg-white">
-        {canPreview ? (
-          <img
-            alt={title || translateText(altFallback || "Anh preview")}
-            className="h-40 w-full object-contain bg-white p-3"
-            onError={() => setHasError(true)}
-            src={normalizedUrl}
-          />
-        ) : (
-          <div className="flex h-40 items-center justify-center bg-slate-100 px-4 text-center text-[12px] text-slate-500">
-            {translateText(normalizedUrl ? "Khong tai duoc hinh preview." : emptyMessage || "Chua cau hinh hinh anh.")}
-          </div>
-        )}
-      </div>
-      {normalizedUrl ? <div className="mt-2.5 break-all text-[11px] text-slate-500">{normalizedUrl}</div> : null}
-    </div>
-  );
-}
-
 export function ResourceDetailDrawer({
   resource,
   selected,
@@ -454,6 +198,11 @@ export function ResourceDetailDrawer({
   onClose,
   printTemplate,
   printFilters = [],
+  designerPrintEnabled = false,
+  designerPrintTemplate,
+  designerPrintTemplateKey,
+  designerGeneratedBy,
+  designerBranding,
 }: {
   resource: ResourceDefinition;
   selected: Record<string, unknown> | null;
@@ -461,24 +210,25 @@ export function ResourceDetailDrawer({
   onClose: () => void;
   printTemplate?: Record<string, unknown> | null;
   printFilters?: Array<{ label: string; value: unknown }>;
+  designerPrintEnabled?: boolean;
+  designerPrintTemplate?: Record<string, unknown> | null;
+  designerPrintTemplateKey?: string;
+  designerGeneratedBy?: string;
+  designerBranding?: {
+    companyName?: string;
+    legalName?: string;
+    address?: string;
+    hotline?: string;
+    email?: string;
+    website?: string;
+    logoUrl?: string;
+    branchName?: string;
+  } | null;
 }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
-  const [attendanceMachineOperationResult, setAttendanceMachineOperationResult] = useState<AttendanceMachineOperationState | null>(null);
-  const [uploadingAttendanceFaceImage, setUploadingAttendanceFaceImage] = useState(false);
-  const [attendanceFaceUploadError, setAttendanceFaceUploadError] = useState<string | null>(null);
-  const [attendanceMachineLogRangeDraft, setAttendanceMachineLogRangeDraft] = useState<AttendanceMachineLogRangeDraft>({
-    dateFrom: "",
-    dateTo: "",
-  });
-  const [attendanceEnrollmentDraft, setAttendanceEnrollmentDraft] = useState<AttendanceEnrollmentDraft>({
-    personType: "STAFF",
-    personId: "",
-    machineUserId: "",
-    cardCode: "",
-    faceImageUrl: "",
-  });
+  const [contractConversionOpen, setContractConversionOpen] = useState(false);
   const detailKey = resource.baseKey || resource.key;
   const normalizedDetailKey = detailKey === "shop-sales" ? "receipts" : detailKey === "shop-returns" ? "expenses" : detailKey;
   const config = selected?.id ? getResourceDetailConfig(resource) : undefined;
@@ -490,6 +240,7 @@ export function ResourceDetailDrawer({
   const canMaintainAttendanceMachine = normalizedDetailKey === "attendance-machines" && user?.permissions.includes("attendance-machines.update");
   const canToggleMemberPresence = normalizedDetailKey === "member-presence" && user?.permissions.includes("member-presence.update");
   const printProfile = resolveResourcePrintProfile(resource);
+  const canPrintDocument = Boolean(printProfile || designerPrintEnabled);
   const isClassScheduleBooking = resource.key === "class-schedule-bookings";
   const isClassScheduleClass = resource.key === "class-schedule-classes";
   const isClassScheduleTimetable = resource.key === "class-schedule-timetable";
@@ -505,6 +256,20 @@ export function ResourceDetailDrawer({
   const isOperationsLoyalty = resource.key === "operations-loyalty";
   const isPtSchedulePenaltyHistory = resource.key === "pt-schedule-penalty-history";
   const contractCloneLabels = operationContractCloneLabels[resource.key];
+  const contractConversionActionLabel =
+    resource.key === "operations-contract-renewal"
+      ? translateText("Lap gia han")
+      : resource.key === "operations-contract-upgrade"
+        ? translateText("Lap nang cap")
+        : resource.key === "operations-contract-conversion"
+          ? translateText("Lap chuyen doi")
+          : translateText("Chuyen doi hop dong");
+  const defaultContractConversionType =
+    resource.key === "operations-contract-renewal"
+      ? "renewal"
+      : resource.key === "operations-contract-upgrade"
+        ? "upgrade"
+        : "conversion";
   const isClassScheduleTrainingClone =
     isClassScheduleBooking ||
     isClassScheduleTimetable ||
@@ -553,56 +318,106 @@ export function ResourceDetailDrawer({
   });
 
   const detailData = (detailQuery.data || selected || {}) as Record<string, unknown>;
-  const activeAttendanceMachineOperationResult =
-    open && attendanceMachineOperationResult?.selectedId === selectedId ? attendanceMachineOperationResult.result : null;
-  const attendanceMachineBranchId = String(detailData.branchId || "");
+  const canConvertContract =
+    normalizedDetailKey === "contracts" &&
+    user?.permissions.includes("contracts.update") &&
+    !["CANCELLED", "CLOSED"].includes(String(detailData.status || "").toUpperCase());
+  const rolePermissionInsights = useMemo(() => {
+    const rawPermissions =
+      normalizedDetailKey === "roles" && Array.isArray(detailData.permissions)
+        ? (detailData.permissions as Array<Record<string, unknown>>)
+        : [];
 
-  const attendanceMachineUsersQuery = useQuery({
-    queryKey: ["attendance-machine-users", selectedId, attendanceMachineBranchId],
-    queryFn: async () => {
-      const response = await api.get<ListResponse<Record<string, unknown>>>("/users", {
-        params: { branchId: attendanceMachineBranchId, page: 1, pageSize: 100, sortBy: "fullName", sortOrder: "asc" },
-      });
-      return response.data.data;
-    },
-    enabled: open && normalizedDetailKey === "attendance-machines" && canMaintainAttendanceMachine && Boolean(attendanceMachineBranchId),
-  });
+    const moduleMap = new Map<
+      string,
+      {
+        label: string;
+        permissionCount: number;
+        actions: Set<string>;
+        sampleCodes: string[];
+      }
+    >();
+    const actionMap = new Map<
+      string,
+      {
+        label: string;
+        permissionCount: number;
+        modules: Set<string>;
+        sampleCodes: string[];
+      }
+    >();
 
-  const attendanceMachineCustomersQuery = useQuery({
-    queryKey: ["attendance-machine-customers", selectedId, attendanceMachineBranchId],
-    queryFn: async () => {
-      const response = await api.get<ListResponse<Record<string, unknown>>>("/customers", {
-        params: { branchId: attendanceMachineBranchId, page: 1, pageSize: 100, sortBy: "fullName", sortOrder: "asc" },
-      });
-      return response.data.data;
-    },
-    enabled: open && normalizedDetailKey === "attendance-machines" && canMaintainAttendanceMachine && Boolean(attendanceMachineBranchId),
-  });
+    rawPermissions.forEach((permission) => {
+      const moduleKey = String(permission.module || "other").trim() || "other";
+      const actionKey = String(permission.action || "other").trim() || "other";
+      const moduleLabel = resolveTextDisplay(permission.module || "other", "module", permission);
+      const actionLabel = resolveTextDisplay(permission.action || "other", "action", permission);
+      const permissionCode = resolveTextDisplay(permission.code || "-", "permissionCode", permission);
 
-  const attendanceMachineUsers = attendanceMachineUsersQuery.data || [];
-  const attendanceMachineCustomers = attendanceMachineCustomersQuery.data || [];
-  const attendanceEnrollmentOptions = (
-    attendanceEnrollmentDraft.personType === "STAFF"
-      ? attendanceMachineUsers
-      : attendanceMachineCustomers
-  ).map((item) => {
-    const code =
-      attendanceEnrollmentDraft.personType === "STAFF"
-        ? String(item.attendanceCode || item.employeeCode || item.username || item.id || "")
-        : String(item.fingerprintCode || item.code || item.id || "");
+      const moduleEntry = moduleMap.get(moduleKey) || {
+        label: moduleLabel,
+        permissionCount: 0,
+        actions: new Set<string>(),
+        sampleCodes: [],
+      };
+      moduleEntry.permissionCount += 1;
+      moduleEntry.actions.add(actionLabel);
+      if (permissionCode && permissionCode !== "-" && moduleEntry.sampleCodes.length < 3) {
+        moduleEntry.sampleCodes.push(permissionCode);
+      }
+      moduleMap.set(moduleKey, moduleEntry);
+
+      const actionEntry = actionMap.get(actionKey) || {
+        label: actionLabel,
+        permissionCount: 0,
+        modules: new Set<string>(),
+        sampleCodes: [],
+      };
+      actionEntry.permissionCount += 1;
+      actionEntry.modules.add(moduleLabel);
+      if (permissionCode && permissionCode !== "-" && actionEntry.sampleCodes.length < 3) {
+        actionEntry.sampleCodes.push(permissionCode);
+      }
+      actionMap.set(actionKey, actionEntry);
+    });
+
+    const moduleRows = Array.from(moduleMap.values())
+      .sort((left, right) => {
+        if (left.permissionCount !== right.permissionCount) {
+          return right.permissionCount - left.permissionCount;
+        }
+        return left.label.localeCompare(right.label);
+      })
+      .map((entry) => ({
+        moduleLabel: entry.label,
+        permissionCount: entry.permissionCount,
+        actionLabels: Array.from(entry.actions).sort((left, right) => left.localeCompare(right)),
+        sampleCodes: entry.sampleCodes,
+      }));
+
+    const actionRows = Array.from(actionMap.values())
+      .sort((left, right) => {
+        if (left.permissionCount !== right.permissionCount) {
+          return right.permissionCount - left.permissionCount;
+        }
+        return left.label.localeCompare(right.label);
+      })
+      .map((entry) => ({
+        actionLabel: entry.label,
+        permissionCount: entry.permissionCount,
+        moduleLabels: Array.from(entry.modules).sort((left, right) => left.localeCompare(right)),
+        sampleCodes: entry.sampleCodes,
+      }));
+
     return {
-      id: String(item.id || ""),
-      label:
-        attendanceEnrollmentDraft.personType === "STAFF"
-          ? `${String(item.fullName || item.username || "-")} - ${code || "-"}`
-          : `${String(item.fullName || item.code || "-")} - ${code || "-"}`,
-      displayName: String(item.fullName || item.username || item.code || ""),
-      attendanceCode: code,
-      cardCode: String(item.customerCardNumber || ""),
+      moduleCount: moduleRows.length,
+      actionCount: actionRows.length,
+      topModuleLabel: moduleRows[0]?.moduleLabel || "-",
+      topActionLabel: actionRows[0]?.actionLabel || "-",
+      moduleRows,
+      actionRows,
     };
-  });
-  const selectedAttendanceEnrollmentOption =
-    attendanceEnrollmentOptions.find((item) => item.id === attendanceEnrollmentDraft.personId) || null;
+  }, [detailData.permissions, normalizedDetailKey]);
 
   const refreshResourceData = async () => {
     await queryClient.invalidateQueries({ queryKey: [resource.key] });
@@ -610,88 +425,6 @@ export function ResourceDetailDrawer({
     if (config && selectedId) {
       await detailQuery.refetch();
     }
-  };
-
-  const handleAttendanceFaceUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setUploadingAttendanceFaceImage(true);
-      setAttendanceFaceUploadError(null);
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const entityType = "attendance_machine_face";
-      const entityId = `${selectedId || "draft-machine"}-${attendanceEnrollmentDraft.personId || attendanceEnrollmentDraft.personType.toLowerCase()}-face`;
-      const params = new URLSearchParams({ entityType, entityId });
-
-      if (attendanceMachineBranchId) {
-        params.set("branchId", attendanceMachineBranchId);
-      }
-
-      const response = await api.post(`/attachments/upload?${params.toString()}`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      const nextUrl = resolveAssetUrl(String(response.data?.fileUrl || ""));
-      setAttendanceEnrollmentDraft((current) => ({
-        ...current,
-        faceImageUrl: nextUrl,
-      }));
-      toast.success(translateText("Da tai anh khuon mat len va cap nhat URL."));
-    } catch (error) {
-      const message = toApiErrorMessage(error, translateText("Upload anh khuon mat that bai."));
-      setAttendanceFaceUploadError(message);
-      toast.error(message);
-    } finally {
-      setUploadingAttendanceFaceImage(false);
-      if (event.target) {
-        event.target.value = "";
-      }
-    }
-  };
-
-  const submitAttendanceMachineLogRangeAction = async (action: "EXPORT_MACHINE_LOG_RANGE" | "DELETE_MACHINE_LOG_RANGE") => {
-    const dateFrom = attendanceMachineLogRangeDraft.dateFrom.trim();
-    const dateTo = attendanceMachineLogRangeDraft.dateTo.trim();
-
-    if (!dateFrom || !dateTo) {
-      toast.error(translateText("Can chon day du tu ngay va den ngay cho khoang du lieu may cham cong."));
-      return;
-    }
-
-    if (new Date(`${dateFrom}T00:00:00`).getTime() > new Date(`${dateTo}T00:00:00`).getTime()) {
-      toast.error(translateText("Tu ngay khong duoc lon hon den ngay."));
-      return;
-    }
-
-    await attendanceMachineMaintenanceMutation.mutateAsync({
-      action,
-      dateFrom,
-      dateTo,
-    });
-  };
-
-  const submitAttendanceMachineFullLogAction = async (action: "EXPORT_ALL_MACHINE_LOGS" | "DELETE_ALL_MACHINE_LOGS") => {
-    if (action === "DELETE_ALL_MACHINE_LOGS") {
-      const confirmed = window.confirm(
-        translateText(
-          "Ban co chac muon xoa toan bo log tren may cham cong? Du lieu sau khi xoa se khong the phuc hoi tren thiet bi.",
-        ),
-      );
-
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    await attendanceMachineMaintenanceMutation.mutateAsync({
-      action,
-    });
   };
 
   const resetPasswordMutation = useMutation({
@@ -703,97 +436,12 @@ export function ResourceDetailDrawer({
     },
   });
 
-  const attendanceMachineMaintenanceMutation = useMutation({
-    mutationFn: async (payload: AttendanceMachineMaintenancePayload) =>
-      api.post<Record<string, unknown>>(`/attendance-machines/${selectedId}/maintenance`, payload),
-    onSuccess: async (response, payload) => {
-      const action = payload.action;
-      const operationResult = (response.data.operationResult || null) as AttendanceMachineOperationResult | null;
-      setAttendanceMachineOperationResult(operationResult ? { selectedId, result: operationResult } : null);
-
-      if (action === "PULL_MACHINE_CODES" && operationResult?.records?.length) {
-        downloadAttendanceMachineExport(
-          operationResult.records,
-          String(operationResult.fileName || `attendance-machine-${String(detailData.code || selectedId || "export")}.csv`),
-        );
-      }
-
-      if ((action === "EXPORT_MACHINE_LOG_RANGE" || action === "EXPORT_ALL_MACHINE_LOGS") && operationResult?.records?.length) {
-        downloadAttendanceMachineLogRangeExport(
-          operationResult.records,
-          String(operationResult.fileName || `attendance-machine-${String(detailData.code || selectedId || "export")}-device-logs.csv`),
-        );
-      }
-
-      const successMessageMap: Record<string, string> = {
-        TOGGLE_SYNC: detailData.syncEnabled ? "Da tat dong bo cho may cham cong." : "Da bat dong bo cho may cham cong.",
-        PING_MACHINE: "Da kiem tra ket noi may cham cong.",
-        PULL_ATTENDANCE_EVENTS: "Da tai du lieu cham cong tu may ve he thong.",
-        PULL_MACHINE_CODES: "Da xuat danh sach ma cham cong ve may tinh.",
-        PUSH_STAFF_CODES: "Da tai nhan vien len may cham cong.",
-        PUSH_CUSTOMER_CODES: "Da tai hoi vien len may cham cong.",
-        SYNC_MACHINE_TIME: "Da dong bo thoi gian may cham cong.",
-        EXPORT_MACHINE_LOG_RANGE: "Da tai du lieu tren may theo moc thoi gian ve may tinh.",
-        DELETE_MACHINE_LOG_RANGE: "Da xu ly thao tac xoa du lieu tren may theo moc thoi gian.",
-        EXPORT_ALL_MACHINE_LOGS: "Da tai toan bo log tren may ve may tinh.",
-        DELETE_ALL_MACHINE_LOGS: "Da xu ly thao tac xoa toan bo log tren may.",
-        LINK_MACHINE_PERSON: "Da luu lien ket ma may voi doi tuong trong he thong.",
-        ENROLL_FACE: "Da day enrollment khuon mat len may cham cong.",
-        ENROLL_CARD: "Da day enrollment the len may cham cong.",
-        START_SYNC: "Da danh dau may dang dong bo.",
-        FINISH_SYNC: "Da ghi nhan may dong bo xong.",
-        MARK_CONNECTED: "Da cap nhat trang thai ket noi.",
-        MARK_DISCONNECTED: "Da cap nhat trang thai mat ket noi.",
-        MARK_ERROR: "Da danh dau may dang gap loi.",
-      };
-      const successMessage = translateText(successMessageMap[action] || "Da danh dau may dang gap loi.");
-
-      if ((action === "DELETE_MACHINE_LOG_RANGE" || action === "DELETE_ALL_MACHINE_LOGS") && operationResult?.connectorResult?.supported === false) {
-        toast.error(translateText(String(operationResult.connectorResult.message || successMessage)));
-      } else {
-        toast.success(successMessage);
-      }
-      await refreshResourceData();
-    },
-    onError: (error) => {
-      toast.error(toApiErrorMessage(error, translateText("Khong cap nhat duoc may cham cong.")));
-    },
-  });
-
-  const memberPresenceToggleMutation = useMutation({
-    mutationFn: async () => api.post<Record<string, unknown>>(`/member-presence/${selectedId}/toggle`, {}),
-    onSuccess: async (response) => {
-      const nextStatus = String(response.data?.presenceStatus || "");
-      toast.success(
-        translateText(
-          nextStatus === "ACTIVE"
-            ? "Da xac nhan hoi vien dang tap."
-            : "Da xac nhan hoi vien da off.",
-        ),
-      );
-      await refreshResourceData();
-    },
-    onError: (error) => {
-      toast.error(
-        toApiErrorMessage(
-          error,
-          translateText("Khong cap nhat duoc trang thai hien dien hoi vien."),
-        ),
-      );
-    },
-  });
-
-  const activeAttendanceMachineMaintenanceAction =
-    attendanceMachineMaintenanceMutation.isPending
-      ? attendanceMachineMaintenanceMutation.variables?.action || null
-      : null;
-
   const resetPasswordError = resetPasswordMutation.error
     ? toApiErrorMessage(resetPasswordMutation.error, translateText("Khong reset duoc mat khau."))
     : null;
 
   const handlePrintRecord = async () => {
-    if (!printProfile) return;
+    if (!canPrintDocument) return;
 
     let record = detailData;
 
@@ -804,14 +452,44 @@ export function ResourceDetailDrawer({
       }
     }
 
+    const scopedBranchId = resolveRecordBranchId(record, detailData, selected);
+    const scopedPrintContext = scopedBranchId
+      ? await fetchScopedPrintContext(scopedBranchId, {
+          includeBranding: true,
+          includePrintTemplate: !designerPrintEnabled,
+          includeReportTemplate: designerPrintEnabled,
+        })
+      : null;
+    const effectiveBranding = scopedPrintContext?.branding || designerBranding;
+    const effectivePrintTemplate = scopedPrintContext?.printTemplate || printTemplate;
+    const effectiveDesignerTemplate = scopedPrintContext?.reportTemplate || designerPrintTemplate;
+
+    if (designerPrintEnabled && designerPrintTemplateKey && effectiveDesignerTemplate) {
+      const dataset = buildResourceDesignerDataset(resource, record);
+      printReportDocument({
+        templateKey: designerPrintTemplateKey,
+        title: `${resource.title} ${String(record.code || record.id || "").trim()}`.trim(),
+        subtitle: resource.subtitle,
+        summary: dataset.summary,
+        filters: printFilters,
+        rows: dataset.rows,
+        columns: dataset.columns,
+        template: effectiveDesignerTemplate,
+        generatedBy: designerGeneratedBy,
+        branding: effectiveBranding,
+      });
+      return;
+    }
+
     printResourceRecord({
       title: `${resource.title} ${String(record.code || record.id || "").trim()}`.trim(),
       subtitle: resource.subtitle,
       entries: buildResourcePrintEntries(resource, record),
       record,
       filters: printFilters,
-      template: printTemplate,
+      template: effectivePrintTemplate,
       profile: printProfile,
+      branding: effectiveBranding,
     });
   };
 
@@ -1079,10 +757,14 @@ export function ResourceDetailDrawer({
         { label: "Chi nhanh", value: detailData.branchName },
         { label: "Danh muc vat tu", value: detailData.categoryName },
         { label: "Nhom cap phat", value: detailData.groupName },
-        { label: "So luong ton", value: detailData.stockQuantity },
-        { label: "Nguong toi thieu", value: detailData.minStockQuantity },
+        { label: "Tong so luong", value: detailData.stockQuantity },
+        { label: "San sang", value: detailData.availableTowelQuantity },
+        { label: "Dang phat", value: detailData.activeIssueQuantity },
+        { label: "Dang giat", value: detailData.laundryQuantity },
+        { label: "SL thue luot", value: detailData.towelRentalQuantity },
+        { label: "SL da ban", value: detailData.towelSaleQuantity },
         { label: "Muc canh bao", value: detailData.stockAlertLabel },
-        { label: "Lan nhap gan nhat", value: detailData.lastPurchaseDate, type: "datetime" },
+        { label: "Lan thu tien gan nhat", value: detailData.lastTowelReceiptDate || detailData.lastPurchaseDate, type: "datetime" },
       ];
     }
 
@@ -1238,7 +920,18 @@ export function ResourceDetailDrawer({
           { label: "Loai vai tro", value: detailData.roleType, type: "status" },
           { label: "So quyen", value: detailData.permissionCount },
           { label: "So nguoi dung", value: detailData.userCount },
+          { label: "Tinh nang", value: rolePermissionInsights.moduleCount },
+          { label: "Hanh dong", value: rolePermissionInsights.actionCount },
           { label: "Ngay tao", value: detailData.createdDateTime, type: "datetime" },
+        ];
+      case "tenant-databases":
+        return [
+          { label: "Trang thai", value: detailData.status || (detailData.isActive ? "ACTIVE" : "INACTIVE"), type: "status" },
+          { label: "Loai ket noi", value: detailData.providerLabel || detailData.providerType },
+          { label: "Che do ket noi", value: detailData.connectionModeLabel || detailData.connectionMode },
+          { label: "Ten database", value: detailData.databaseName },
+          { label: "Host may chu", value: detailData.databaseHost },
+          { label: "Cap nhat lan cuoi", value: detailData.updatedDateTime, type: "datetime" },
         ];
       case "staff-shifts":
         return [
@@ -1285,6 +978,26 @@ export function ResourceDetailDrawer({
           { label: "Luot thue mo", value: detailData.activeRentalCount },
           { label: "Tong luot thue", value: detailData.rentalCount },
         ];
+      case "locker-rentals":
+        return [
+          { label: "Trang thai", value: detailData.status, type: "status" },
+          { label: "Chi nhanh", value: detailData.branchName },
+          { label: "Tu do", value: detailData.lockerDisplayName || detailData.lockerCode },
+          { label: "Hoi vien", value: detailData.customerName },
+          { label: "Tien coc", value: detailData.depositAmount, type: "currency" },
+          { label: "Hieu luc", value: formatDateRangeLabel(detailData.startDate, detailData.endDate) },
+        ];
+      case "towel-issues":
+        return [
+          { label: "Trang thai", value: detailData.status, type: "status" },
+          { label: "Chi nhanh", value: detailData.branchName },
+          { label: "Vat tu", value: detailData.productOptionLabel || detailData.productName },
+          { label: "Hoi vien", value: detailData.customerName },
+          { label: "So luong", value: detailData.quantity },
+          { label: "Ngay phat", value: detailData.issueDate, type: "datetime" },
+          { label: "Han tra", value: detailData.dueDate, type: "datetime" },
+          { label: "Ngay tra", value: detailData.returnDate, type: "datetime" },
+        ];
       case "deposits":
         return [
           { label: "Trang thai", value: detailData.status, type: "status" },
@@ -1309,8 +1022,9 @@ export function ResourceDetailDrawer({
           { label: "Trang thai", value: detailData.status, type: "status" },
           { label: "So tien", value: detailData.amount, type: "currency" },
           { label: detailKey === "shop-sales" ? "Ngay ban" : "Ngay thu", value: detailData.receiptDate, type: "datetime" },
-          { label: detailKey === "shop-sales" ? "Khach mua" : "Khach hang", value: detailData.customerName },
+          { label: detailKey === "shop-sales" ? "Khach mua" : "Nguoi nop", value: detailData.customerName },
           { label: "Hop dong", value: detailData.contractCode },
+          { label: detailKey === "shop-sales" ? "Kenh ban" : "Nguon thu", value: detailData.sourceLabel || detailData.sourceType },
           { label: "Phuong thuc", value: resolveTextDisplay(detailData.paymentMethodName, "paymentMethodName", detailData) },
           { label: detailKey === "shop-sales" ? "Thu ngan" : "Nguoi thu", value: detailData.collectorName },
           ...(detailKey === "shop-sales"
@@ -2293,10 +2007,54 @@ export function ResourceDetailDrawer({
             {renderInfoCard("Chi nhanh", String(detailData.branchName || "-"), String(detailData.categoryName || "-"))}
             {renderInfoCard(isOperationsTowels ? "So luong ton" : "Ton kho", String(detailData.stockQuantity || 0), `${String(detailData.minStockQuantity || 0)} ${translateText(isOperationsTowels ? "Nguong toi thieu" : "toi thieu")}`)}
             {renderInfoCard(isOperationsTowels ? "Muc canh bao" : "Canh bao", resolveTextDisplay(detailData.stockAlertLabel, "stockAlertLabel", detailData), String(detailData.groupName || "-"))}
-            {renderInfoCard(isOperationsTowels ? "Gia nhap" : "Gia", formatCurrency(Number((isOperationsTowels ? detailData.purchasePrice : detailData.salePrice) || 0)), `${translateText("Gia nhap")} ${formatCurrency(Number(detailData.purchasePrice || 0))}`)}
+            {isOperationsTowels ? renderInfoCard("San sang / dang phat", String(detailData.availableTowelQuantity || 0), `${translateText("Dang phat")}: ${String(detailData.activeIssueQuantity || 0)} | ${translateText("Dang giat")}: ${String(detailData.laundryQuantity || 0)}`) : null}
+            {renderInfoCard(
+              isOperationsTowels ? "SL thue luot" : "Gia",
+              isOperationsTowels ? String(detailData.towelRentalQuantity || 0) : formatCurrency(Number(detailData.salePrice || 0)),
+              isOperationsTowels
+                ? `${translateText("Doanh thu")} ${formatCurrency(Number(detailData.towelRentalRevenue || 0))}`
+                : `${translateText("Gia nhap")} ${formatCurrency(Number(detailData.purchasePrice || 0))}`,
+            )}
+            {renderInfoCard(
+              isOperationsTowels ? "SL da ban" : "Gia nhap",
+              isOperationsTowels ? String(detailData.towelSaleQuantity || 0) : formatCurrency(Number(detailData.purchasePrice || 0)),
+              isOperationsTowels
+                ? `${translateText("Doanh thu")} ${formatCurrency(Number(detailData.towelSaleRevenue || 0))}`
+                : `${translateText("Gia ban")} ${formatCurrency(Number(detailData.salePrice || 0))}`,
+            )}
+            {renderInfoCard(
+              isOperationsTowels ? "Gia ban / gia nhap" : "Lan nhap gan nhat",
+              isOperationsTowels
+                ? formatCurrency(Number(detailData.salePrice || 0))
+                : formatDateTime(String(detailData.lastPurchaseDate || "")),
+              isOperationsTowels
+                ? `${translateText("Gia nhap")} ${formatCurrency(Number(detailData.purchasePrice || 0))}`
+                : String(detailData.groupName || "-"),
+            )}
           </div>
         ),
       });
+
+      if (isOperationsTowels) {
+        nextSections.push({
+          key: "towel-issue-history",
+          label: "Lich su phat / tra",
+          count: Array.isArray(detailData.recentTowelIssues) ? detailData.recentTowelIssues.length : Number(detailData.activeIssueQuantity || 0),
+          content: renderMiniTable(
+            ["Ma phieu", "Hoi vien", "Ngay phat", "Han tra", "Ngay tra", "Trang thai"],
+            ((detailData.recentTowelIssues as Array<Record<string, unknown>> | undefined) || []).map((item) => [
+              String(item.issueCode || "-"),
+              String(item.customerName || "-"),
+              formatDateTime(String(item.issueDate || "")),
+              item.dueDate ? formatDateTime(String(item.dueDate || "")) : "-",
+              item.returnDate ? formatDateTime(String(item.returnDate || "")) : "-",
+              <StatusBadge key={`${String(item.issueId || item.issueCode)}-towel-issue-status`} value={String(item.status || "")} />,
+            ]),
+            "Chua co luot phat / tra",
+            "Vat tu nay chua co luot phat / tra khan nao duoc ghi nhan.",
+          ),
+        });
+      }
 
       nextSections.push({
         key: "purchase-history",
@@ -2314,6 +2072,43 @@ export function ResourceDetailDrawer({
           ]),
           isOperationsTowels ? "Chua co lich su bo sung" : "Chua co lich su nhap",
           isOperationsTowels ? "Vat tu nay chua co lan bo sung nao." : "San pham nay chua co dong nhap hang nao.",
+        ),
+      });
+
+      if (isOperationsTowels) {
+        nextSections.push({
+          key: "towel-transactions",
+          label: "Lich su thu tien",
+          count: Array.isArray(detailData.recentTowelTransactions) ? detailData.recentTowelTransactions.length : Number(detailData.towelReceiptCount || 0),
+          content: renderMiniTable(
+            ["Phieu thu", "Loai", "Khach", "Ngay", "SL", "Thanh tien"],
+            ((detailData.recentTowelTransactions as Array<Record<string, unknown>> | undefined) || []).map((item) => [
+              String(item.receiptCode || "-"),
+              <StatusBadge key={`${String(item.receiptId || item.receiptCode)}-towel-source`} value={String(item.sourceType || "")} />,
+              String(item.customerName || "-"),
+              formatDateTime(String(item.receiptDate || "")),
+              String(item.quantity || 0),
+              formatCurrency(Number(item.totalPrice || 0)),
+            ]),
+            "Chua co phieu thu",
+            "Vat tu nay chua co phieu thu nao cho luot thue hoac ban le.",
+          ),
+        });
+      }
+    }
+
+    if (normalizedDetailKey === "towel-issues") {
+      nextSections.push({
+        key: "towel-issue-overview",
+        label: "Thong tin phat / tra",
+        content: (
+          <div className="grid gap-3 md:grid-cols-2">
+            {renderInfoCard("Hoi vien", String(detailData.customerName || "-"), String(detailData.contractCode || "-"))}
+            {renderInfoCard("Vat tu", String(detailData.productOptionLabel || detailData.productName || "-"), String(detailData.branchName || "-"))}
+            {renderInfoCard("Ngay phat / han tra", formatDateRangeLabel(detailData.issueDate, detailData.dueDate), detailData.returnDate ? formatDateTime(String(detailData.returnDate || "")) : "-")}
+            {renderInfoCard("So luong / xu ly", String(detailData.quantity || 0), String(detailData.handledByName || "-"))}
+            {renderInfoCard("Phieu thu lien ket", String(detailData.receiptCode || "-"), String(detailData.note || "-"))}
+          </div>
         ),
       });
     }
@@ -2449,6 +2244,40 @@ export function ResourceDetailDrawer({
           </div>
         ),
       });
+
+      nextSections.push({
+        key: "rental-history",
+        label: "Lich su thue",
+        count: Array.isArray(detailData.rentals) ? detailData.rentals.length : Number(detailData.rentalCount || 0),
+        content: renderMiniTable(
+          ["Ma thue", "Hoi vien", "Tu ngay", "Den ngay", "Trang thai", "Ghi chu"],
+          ((detailData.rentals as Array<Record<string, unknown>> | undefined) || []).map((rental) => [
+            String(rental.code || "-"),
+            String(rental.customerName || rental.customerCode || "-"),
+            rental.startDate ? formatDate(String(rental.startDate || "")) : "-",
+            rental.endDate ? formatDate(String(rental.endDate || "")) : "-",
+            <StatusBadge key={`${String(rental.id || rental.code)}-locker-rental-status`} value={String(rental.status || "")} />,
+            String(rental.note || "-"),
+          ]),
+          "Chua co luot thue",
+          "Tu nay chua co phieu thue nao duoc tao.",
+        ),
+      });
+    }
+
+    if (normalizedDetailKey === "locker-rentals") {
+      nextSections.push({
+        key: "locker-rental-overview",
+        label: "Thong tin phieu thue",
+        content: (
+          <div className="grid gap-3 md:grid-cols-2">
+            {renderInfoCard("Hoi vien", String(detailData.customerName || "-"), String(detailData.customerCode || "-"))}
+            {renderInfoCard("Tu do", String(detailData.lockerDisplayName || detailData.lockerCode || "-"), String(detailData.branchName || "-"))}
+            {renderInfoCard("Thoi han", formatDateRangeLabel(detailData.startDate, detailData.endDate), String(detailData.processedByName || "-"))}
+            {renderInfoCard("Tien coc", formatCurrency(Number(detailData.depositAmount || 0)), String(detailData.note || "-"))}
+          </div>
+        ),
+      });
     }
 
     if (normalizedDetailKey === "users") {
@@ -2563,6 +2392,55 @@ export function ResourceDetailDrawer({
 
     if (normalizedDetailKey === "roles" && !isStaffStage) {
       nextSections.push({
+        key: "permission-overview",
+        label: "Tong quan phan quyen",
+        content: (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {renderInfoCard("Loai vai tro", resolveTextDisplay(detailData.roleType, "roleType", detailData), String(detailData.code || "-"))}
+            {renderInfoCard("So quyen", String(detailData.permissionCount || 0), rolePermissionInsights.topModuleLabel)}
+            {renderInfoCard("So nguoi dung", String(detailData.userCount || 0), detailData.updatedDateTime ? formatDateTime(String(detailData.updatedDateTime)) : "-")}
+            {renderInfoCard("Tinh nang", String(rolePermissionInsights.moduleCount || 0), rolePermissionInsights.topModuleLabel)}
+            {renderInfoCard("Hanh dong", String(rolePermissionInsights.actionCount || 0), rolePermissionInsights.topActionLabel)}
+            {renderInfoCard("Ngay tao", detailData.createdDateTime ? formatDateTime(String(detailData.createdDateTime)) : "-", String(detailData.description || "-"))}
+          </div>
+        ),
+      });
+
+      nextSections.push({
+        key: "permission-modules",
+        label: "Nhom quyen theo module",
+        count: rolePermissionInsights.moduleCount,
+        content: renderMiniTable(
+          [translateText("Module"), translateText("So quyen"), translateText("Hanh dong"), translateText("Mo ta")],
+          rolePermissionInsights.moduleRows.map((row) => [
+            row.moduleLabel,
+            String(row.permissionCount),
+            row.actionLabels.join(", "),
+            row.sampleCodes.join(", ") || "-",
+          ]),
+          "Chua co nhom quyen",
+          "Vai tro nay chua co module quyen nao duoc cau hinh.",
+        ),
+      });
+
+      nextSections.push({
+        key: "permission-actions",
+        label: "Nhom quyen theo hanh dong",
+        count: rolePermissionInsights.actionCount,
+        content: renderMiniTable(
+          [translateText("Hanh dong"), translateText("So quyen"), translateText("Module"), translateText("Mo ta")],
+          rolePermissionInsights.actionRows.map((row) => [
+            row.actionLabel,
+            String(row.permissionCount),
+            row.moduleLabels.join(", "),
+            row.sampleCodes.join(", ") || "-",
+          ]),
+          "Chua co nhom hanh dong",
+          "Vai tro nay chua co nhom hanh dong nao duoc cau hinh.",
+        ),
+      });
+
+      nextSections.push({
         key: "permissions",
         label: "Ma tran quyen",
         count: Array.isArray(detailData.permissions) ? detailData.permissions.length : Number(detailData.permissionCount || 0),
@@ -2597,731 +2475,100 @@ export function ResourceDetailDrawer({
       });
     }
 
+    if (normalizedDetailKey === "tenant-databases") {
+      nextSections.push({
+        key: "tenant-connection-overview",
+        label: "Thong tin ket noi",
+        content: (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {renderInfoCard("Ma nguon", String(detailData.code || "-"), String(detailData.name || "-"))}
+            {renderInfoCard(
+              "Loai ket noi",
+              String(detailData.providerLabel || detailData.providerType || "-"),
+              String(detailData.connectionModeLabel || detailData.connectionMode || "-"),
+            )}
+            {renderInfoCard(
+              "Database",
+              String(detailData.databaseName || "-"),
+              `${translateText("Host")}: ${String(detailData.databaseHost || "-")} | ${translateText("User")}: ${String(detailData.databaseUser || "-")}`,
+            )}
+            {renderInfoCard(
+              "Trang thai",
+              resolveTextDisplay(detailData.status || (detailData.isActive ? "ACTIVE" : "INACTIVE"), "status", detailData),
+              detailData.updatedDateTime ? formatDateTime(String(detailData.updatedDateTime)) : "-",
+            )}
+          </div>
+        ),
+      });
+
+      nextSections.push({
+        key: "tenant-connection-strings",
+        label: "Chuoi ket noi",
+        content: (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-[0.8rem] border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">{translateText("Connection string")}</p>
+              <p className="mt-2 break-all font-mono text-[12px] text-slate-700">
+                {String(detailData.connectionUrlPreview || detailData.connectionUrl || "-")}
+              </p>
+            </div>
+            <div className="rounded-[0.8rem] border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">{translateText("Direct connection")}</p>
+              <p className="mt-2 break-all font-mono text-[12px] text-slate-700">
+                {String(detailData.directConnectionUrlPreview || detailData.directConnectionUrl || "-")}
+              </p>
+            </div>
+          </div>
+        ),
+      });
+    }
+
     if (normalizedDetailKey === "attendance-machines") {
       nextSections.push({
         key: "config",
         label: "Cau hinh ket noi",
+        content: <LazyAttendanceMachineConfigSection detailData={detailData} />,
+      });
+
+      nextSections.push({
+        key: "bridge-secret",
+        label: "Bridge secret",
         content: (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {renderInfoCard("Chi nhanh", String(detailData.branchName || "-"), String(detailData.code || "-"))}
-            {renderInfoCard(
-              "Ket noi thiet bi",
-              String(detailData.host || "-"),
-              `${translateText("Cong")}: ${String(detailData.connectionPort || "-")} | ${translateText("Giao thuc")}: ${String(detailData.protocol || "-")}`,
-            )}
-            {renderInfoCard(
-              "Dong bo du lieu",
-              resolveTextDisplay(Boolean(detailData.syncEnabled).toString()),
-              `${translateText("Trang thai")}: ${resolveTextDisplay(detailData.connectionStatus, "status")} | ${translateText("Mat khau thiet bi")}: ${resolveTextDisplay(Boolean(detailData.hasPassword).toString())}`,
-            )}
-            {renderInfoCard(
-              "Comm key / poll",
-              String(detailData.commKeyStatus || "-"),
-              `${translateText("Chu ky poll")}: ${String(detailData.pollingIntervalSeconds || "-")}s | ${translateText("Ho tro the")}: ${resolveTextDisplay(Boolean(detailData.supportsCardEnrollment).toString())}`,
-            )}
-            {renderInfoCard(
-              "Nhip ket noi gan nhat",
-              formatDateTime(String(detailData.lastHeartbeatDateTime || detailData.lastSyncedDateTime || "")),
-              String(detailData.lastErrorMessage || `${String(detailData.eventCount || 0)} ${translateText("su kien")}`),
-            )}
-          </div>
+          <LazyAttendanceMachineBridgeSecretSection
+            canMaintainAttendanceMachine={Boolean(canMaintainAttendanceMachine)}
+            detailData={detailData}
+            onRefresh={refreshResourceData}
+            selectedId={selectedId}
+          />
         ),
       });
 
       nextSections.push({
         key: "operations",
         label: "Dong bo & ket noi",
-        content: canMaintainAttendanceMachine ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {[
-              {
-                action: "PING_MACHINE",
-                title: "Kiem tra ket noi may",
-                description: "Doc nhanh thong tin may, firmware, serial, so user va log hien co.",
-              },
-              {
-                action: "PULL_ATTENDANCE_EVENTS",
-                title: "Tai du lieu cham cong ve he thong",
-                description: "Lay log cham cong moi nhat tu may va lam moi danh sach su kien.",
-              },
-              {
-                action: "PULL_MACHINE_CODES",
-                title: "Tai ma cham cong ve may tinh",
-                description: "Xuat danh sach ma cham cong cua nhan vien va hoi vien de doi soat hoac gan ma offline.",
-              },
-              {
-                action: "PUSH_STAFF_CODES",
-                title: "Tai nhan vien len may",
-                description: "Day nhan vien co ma cham cong len may de su dung ngay tai chi nhanh.",
-              },
-              {
-                action: "PUSH_CUSTOMER_CODES",
-                title: "Tai hoi vien len may",
-                description: "Day hoi vien co ma van tay hoac ma cham cong len may de check-in tai cong vao.",
-              },
-              {
-                action: "SYNC_MACHINE_TIME",
-                title: "Dong bo gio may cham cong",
-                description: "Cap nhat thoi gian may theo mui gio he thong de tranh lech check-in.",
-              },
-            ].map((item) => (
-              <button
-                className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={attendanceMachineMaintenanceMutation.isPending}
-                key={item.action}
-                onClick={() => void attendanceMachineMaintenanceMutation.mutateAsync({ action: item.action })}
-                type="button"
-              >
-                <div className="text-sm font-semibold text-slate-900">{translateText(item.title)}</div>
-                <div className="mt-2 text-sm text-slate-500">{translateText(item.description)}</div>
-              </button>
-            ))}
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 md:col-span-2">
-              <div className="text-sm font-semibold text-slate-900">
-                {translateText("Tai / xoa du lieu tren may theo moc thoi gian")}
-              </div>
-              <div className="mt-1 text-sm text-slate-600">
-                {translateText(
-                  "Khung nay chi lam viec voi log dang nam tren may cham cong. Khac voi nut 'Tai du lieu cham cong ve he thong', thao tac nay dung de tai file doi soat hoac giai phong bo nho tren may.",
-                )}
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <label className="space-y-1.5">
-                  <div className="text-xs font-medium text-slate-600">{translateText("Tu ngay")}</div>
-                  <input
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                    max={attendanceMachineLogRangeDraft.dateTo || undefined}
-                    onChange={(event) =>
-                      setAttendanceMachineLogRangeDraft((current) => ({
-                        ...current,
-                        dateFrom: event.target.value,
-                      }))
-                    }
-                    type="date"
-                    value={attendanceMachineLogRangeDraft.dateFrom}
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <div className="text-xs font-medium text-slate-600">{translateText("Den ngay")}</div>
-                  <input
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                    min={attendanceMachineLogRangeDraft.dateFrom || undefined}
-                    onChange={(event) =>
-                      setAttendanceMachineLogRangeDraft((current) => ({
-                        ...current,
-                        dateTo: event.target.value,
-                      }))
-                    }
-                    type="date"
-                    value={attendanceMachineLogRangeDraft.dateTo}
-                  />
-                </label>
-              </div>
-              <div className="mt-2 text-[11px] text-slate-500">
-                {translateText(
-                  "He thong se gioi han theo ngay bat dau va ngay ket thuc ban chon. Xoa log chi duoc phep khi may ho tro xoa dung pham vi hoac khoang ngay da bao trum toan bo log hien co tren may.",
-                )}
-              </div>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <button
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={
-                    attendanceMachineMaintenanceMutation.isPending ||
-                    !attendanceMachineLogRangeDraft.dateFrom ||
-                    !attendanceMachineLogRangeDraft.dateTo
-                  }
-                  onClick={() => void submitAttendanceMachineLogRangeAction("EXPORT_MACHINE_LOG_RANGE")}
-                  type="button"
-                >
-                  {activeAttendanceMachineMaintenanceAction === "EXPORT_MACHINE_LOG_RANGE"
-                    ? translateText("Dang tai file...")
-                    : translateText("Tai du lieu tu may ve may tinh")}
-                </button>
-                <button
-                  className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={
-                    attendanceMachineMaintenanceMutation.isPending ||
-                    !attendanceMachineLogRangeDraft.dateFrom ||
-                    !attendanceMachineLogRangeDraft.dateTo
-                  }
-                  onClick={() => void submitAttendanceMachineLogRangeAction("DELETE_MACHINE_LOG_RANGE")}
-                  type="button"
-                >
-                  {translateText("Xoa du lieu tren may")}
-                </button>
-              </div>
-              <div className="mt-4 rounded-xl border border-amber-300/80 bg-white/80 p-3">
-                <div className="text-xs font-semibold text-slate-800">{translateText("Tai / xoa toan bo log tren may")}</div>
-                <div className="mt-1 text-[11px] text-slate-500">
-                  {translateText(
-                    "Neu may khong ho tro xoa theo moc thoi gian, hay tai toan bo log ve may tinh truoc roi moi xoa toan bo log tren may de giai phong bo nho.",
-                  )}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-3">
-                  <button
-                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={attendanceMachineMaintenanceMutation.isPending}
-                  onClick={() => void submitAttendanceMachineFullLogAction("EXPORT_ALL_MACHINE_LOGS")}
-                  type="button"
-                >
-                    {activeAttendanceMachineMaintenanceAction === "EXPORT_ALL_MACHINE_LOGS"
-                      ? translateText("Dang tai file...")
-                      : translateText("Tai toan bo log tren may")}
-                  </button>
-                  <button
-                    className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={attendanceMachineMaintenanceMutation.isPending}
-                    onClick={() => void submitAttendanceMachineFullLogAction("DELETE_ALL_MACHINE_LOGS")}
-                    type="button"
-                  >
-                    {translateText("Xoa toan bo log tren may")}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 md:col-span-2">
-              <div className="text-sm font-semibold text-slate-900">{translateText("Lien ket ma may va enroll khuon mat / the")}</div>
-              <div className="mt-1 text-sm text-slate-500">
-                {translateText("Chon doi tuong trong chi nhanh, luu lien ket ma may de pull log doi khop dung nguoi, sau do co the day the hoac khuon mat len may dang chon.")}
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <label className="space-y-1.5">
-                  <div className="text-xs font-medium text-slate-600">{translateText("Loai doi tuong")}</div>
-                  <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                    onChange={(event) =>
-                      setAttendanceEnrollmentDraft({
-                        personType: event.target.value as "STAFF" | "CUSTOMER",
-                        personId: "",
-                        machineUserId: "",
-                        cardCode: "",
-                        faceImageUrl: "",
-                      })
-                    }
-                    value={attendanceEnrollmentDraft.personType}
-                  >
-                    <option value="STAFF">{translateText("Nhan vien")}</option>
-                    <option value="CUSTOMER">{translateText("Hoi vien")}</option>
-                  </select>
-                </label>
-                <label className="space-y-1.5">
-                  <div className="text-xs font-medium text-slate-600">{translateText("Chon doi tuong")}</div>
-                  <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                    onChange={(event) => {
-                      const nextOption =
-                        attendanceEnrollmentOptions.find((item) => item.id === event.target.value) || null;
-                      setAttendanceEnrollmentDraft((current) => ({
-                        ...current,
-                        personId: event.target.value,
-                        machineUserId: nextOption?.attendanceCode || current.machineUserId,
-                        cardCode:
-                          current.personType === "CUSTOMER"
-                            ? nextOption?.cardCode || current.cardCode
-                            : current.cardCode,
-                      }));
-                    }}
-                    value={attendanceEnrollmentDraft.personId}
-                  >
-                    <option value="">{translateText("Chon nhan vien / hoi vien")}</option>
-                    {attendanceEnrollmentOptions.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1.5">
-                  <div className="text-xs font-medium text-slate-600">{translateText("Machine user ID / attendance code")}</div>
-                  <input
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                    onChange={(event) =>
-                      setAttendanceEnrollmentDraft((current) => ({
-                        ...current,
-                        machineUserId: event.target.value,
-                      }))
-                    }
-                    value={attendanceEnrollmentDraft.machineUserId}
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <div className="text-xs font-medium text-slate-600">{translateText("Ma the")}</div>
-                  <input
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                    onChange={(event) =>
-                      setAttendanceEnrollmentDraft((current) => ({
-                        ...current,
-                        cardCode: event.target.value,
-                      }))
-                    }
-                    placeholder={translateText("Nhap ma the neu may dung the")}
-                    value={attendanceEnrollmentDraft.cardCode}
-                  />
-                </label>
-                <div className="space-y-1.5 md:col-span-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-slate-600">{translateText("URL anh khuon mat")}</div>
-                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50">
-                      <Upload className="h-3.5 w-3.5" />
-                      <span>{uploadingAttendanceFaceImage ? translateText("Dang tai anh...") : translateText("Tai anh len")}</span>
-                      <input
-                        accept="image/*"
-                        className="hidden"
-                        disabled={!canUploadAttachments || uploadingAttendanceFaceImage || attendanceMachineMaintenanceMutation.isPending}
-                        onChange={handleAttendanceFaceUpload}
-                        type="file"
-                      />
-                    </label>
-                  </div>
-                  <div className="flex flex-col gap-2 md:flex-row">
-                    <input
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-                      onChange={(event) =>
-                        setAttendanceEnrollmentDraft((current) => ({
-                          ...current,
-                          faceImageUrl: event.target.value,
-                        }))
-                      }
-                      placeholder={translateText("Dan URL anh khuon mat de day len may Hikvision")}
-                      value={attendanceEnrollmentDraft.faceImageUrl}
-                    />
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    {translateText("Ban co the paste URL anh khuon mat hoac bam 'Tai anh len'. Sau khi upload xong, he thong se tu dien URL vao o nay.")}
-                  </div>
-                  {!canUploadAttachments ? (
-                    <div className="text-[11px] text-amber-700">{translateText("Tai khoan hien tai khong co quyen tai tep dinh kem.")}</div>
-                  ) : null}
-                  {attendanceFaceUploadError ? <div className="text-[11px] text-rose-600">{attendanceFaceUploadError}</div> : null}
-                </div>
-                <PreviewAssetCard
-                  altFallback="Anh khuon mat"
-                  assetUrl={attendanceEnrollmentDraft.faceImageUrl}
-                  description={translateText("Anh preview nay se duoc dung cho lenh day khuon mat len may dang chon.")}
-                  emptyMessage="Chon hoac tai anh khuon mat de preview truoc khi day len may."
-                  eyebrow="Anh khuon mat"
-                  key={`attendance-face-${attendanceEnrollmentDraft.personId}-${attendanceEnrollmentDraft.faceImageUrl || "empty"}`}
-                  openLabel="Mo anh khuon mat"
-                  title={selectedAttendanceEnrollmentOption?.displayName || translateText("Anh khuon mat se day len may")}
-                />
-              </div>
-              {selectedAttendanceEnrollmentOption ? (
-                <div className="mt-3 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-600">
-                  <div className="font-medium text-slate-800">{translateText("Doi tuong dang chon")}</div>
-                  <div className="mt-1">
-                    {selectedAttendanceEnrollmentOption.displayName || "-"}
-                    {" | "}
-                    {translateText("Ma app")}: {selectedAttendanceEnrollmentOption.attendanceCode || "-"}
-                    {" | "}
-                    {translateText("Ma tren may")}: {attendanceEnrollmentDraft.machineUserId || "-"}
-                  </div>
-                </div>
-              ) : null}
-              <div className="mt-4 flex flex-wrap gap-3">
-                <button
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={
-                    attendanceMachineMaintenanceMutation.isPending ||
-                    !attendanceEnrollmentDraft.personId ||
-                    !attendanceEnrollmentDraft.machineUserId
-                  }
-                  onClick={() =>
-                    void attendanceMachineMaintenanceMutation.mutateAsync({
-                      action: "LINK_MACHINE_PERSON",
-                      personType: attendanceEnrollmentDraft.personType,
-                      personId: attendanceEnrollmentDraft.personId,
-                      displayName: selectedAttendanceEnrollmentOption?.displayName,
-                      appAttendanceCode: selectedAttendanceEnrollmentOption?.attendanceCode,
-                      machineCode: attendanceEnrollmentDraft.machineUserId,
-                      machineUserId: attendanceEnrollmentDraft.machineUserId,
-                      cardCode:
-                        attendanceEnrollmentDraft.personType === "CUSTOMER"
-                          ? attendanceEnrollmentDraft.cardCode || selectedAttendanceEnrollmentOption?.cardCode
-                          : undefined,
-                    })
-                  }
-                  type="button"
-                >
-                  {translateText("Luu lien ket ma may")}
-                </button>
-                <button
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={
-                    attendanceMachineMaintenanceMutation.isPending ||
-                    !attendanceEnrollmentDraft.personId ||
-                    !attendanceEnrollmentDraft.machineUserId ||
-                    !attendanceEnrollmentDraft.cardCode
-                  }
-                  onClick={() =>
-                    void attendanceMachineMaintenanceMutation.mutateAsync({
-                      action: "ENROLL_CARD",
-                      personType: attendanceEnrollmentDraft.personType,
-                      personId: attendanceEnrollmentDraft.personId,
-                      displayName: selectedAttendanceEnrollmentOption?.displayName,
-                      appAttendanceCode: selectedAttendanceEnrollmentOption?.attendanceCode,
-                      machineCode: attendanceEnrollmentDraft.machineUserId,
-                      machineUserId: attendanceEnrollmentDraft.machineUserId,
-                      cardCode: attendanceEnrollmentDraft.cardCode,
-                    })
-                  }
-                  type="button"
-                >
-                  {translateText("Day the len may")}
-                </button>
-                <button
-                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={
-                    attendanceMachineMaintenanceMutation.isPending ||
-                    !attendanceEnrollmentDraft.personId ||
-                    !attendanceEnrollmentDraft.machineUserId ||
-                    !attendanceEnrollmentDraft.faceImageUrl
-                  }
-                  onClick={() =>
-                    void attendanceMachineMaintenanceMutation.mutateAsync({
-                      action: "ENROLL_FACE",
-                      personType: attendanceEnrollmentDraft.personType,
-                      personId: attendanceEnrollmentDraft.personId,
-                      displayName: selectedAttendanceEnrollmentOption?.displayName,
-                      appAttendanceCode: selectedAttendanceEnrollmentOption?.attendanceCode,
-                      machineCode: attendanceEnrollmentDraft.machineUserId,
-                      machineUserId: attendanceEnrollmentDraft.machineUserId,
-                      faceImageUrl: attendanceEnrollmentDraft.faceImageUrl,
-                    })
-                  }
-                  type="button"
-                >
-                  {translateText("Day khuon mat len may")}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            {translateText("Tai khoan hien tai khong co quyen cap nhat trang thai may cham cong.")}
-          </div>
-        ),
-      });
-
-      nextSections.push({
-        key: "maintenance",
-        label: "Bao tri",
-        content: canMaintainAttendanceMachine ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {[
-              {
-                action: "TOGGLE_SYNC",
-                title: detailData.syncEnabled ? "Tat dong bo" : "Bat dong bo",
-                description: detailData.syncEnabled
-                  ? "Tam dung dong bo de bao tri hoac xu ly ket noi."
-                  : "Kich hoat dong bo de may tiep tuc day du lieu cham cong.",
-              },
-              {
-                action: "START_SYNC",
-                title: "Danh dau dang sync",
-                description: "Cap nhat trang thai de van hanh biet may dang dong bo du lieu.",
-              },
-              {
-                action: "FINISH_SYNC",
-                title: "Danh dau sync xong",
-                description: "Chuyen may ve CONNECTED va cap nhat lan sync cuoi.",
-              },
-              {
-                action: "MARK_CONNECTED",
-                title: "Danh dau ket noi",
-                description: "Dung khi may da online tro lai va can cap nhat nhanh tinh trang.",
-              },
-              {
-                action: "MARK_DISCONNECTED",
-                title: "Danh dau mat ket noi",
-                description: "Dung khi may tam mat mang hoac ngung giao tiep.",
-              },
-              {
-                action: "MARK_ERROR",
-                title: "Danh dau loi",
-                description: "Gan co trang thai ERROR de HR/IT theo doi va xu ly.",
-              },
-            ].map((item) => (
-              <button
-                className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={attendanceMachineMaintenanceMutation.isPending}
-                key={item.action}
-                onClick={() => void attendanceMachineMaintenanceMutation.mutateAsync({ action: item.action })}
-                type="button"
-              >
-                <div className="text-sm font-semibold text-slate-900">{translateText(item.title)}</div>
-                <div className="mt-2 text-sm text-slate-500">{translateText(item.description)}</div>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            {translateText("Tai khoan hien tai khong co quyen cap nhat trang thai may cham cong.")}
-          </div>
+        content: (
+          <LazyAttendanceMachineOperationsSection
+            canMaintainAttendanceMachine={Boolean(canMaintainAttendanceMachine)}
+            canUploadAttachments={Boolean(canUploadAttachments)}
+            detailData={detailData}
+            onRefresh={refreshResourceData}
+            open={open}
+            selectedId={selectedId}
+          />
         ),
       });
 
       nextSections.push({
         key: "operation-result",
         label: "Ket qua dong bo",
-        count: Number(activeAttendanceMachineOperationResult?.totalRecords || 0),
-        content: activeAttendanceMachineOperationResult ? (
-          <div className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {renderInfoCard(
-                "Lan thao tac cuoi",
-                formatDateTime(
-                  String(
-                    activeAttendanceMachineOperationResult.syncedAt ||
-                      activeAttendanceMachineOperationResult.exportedAt ||
-                      activeAttendanceMachineOperationResult.machineTime ||
-                      "",
-                  ),
-                ),
-                activeAttendanceMachineOperationResult.timeZone ? `${translateText("Mui gio")}: ${activeAttendanceMachineOperationResult.timeZone}` : undefined,
-              )}
-              {renderInfoCard(
-                "Ban ghi san sang",
-                String(activeAttendanceMachineOperationResult.totalRecords || 0),
-                activeAttendanceMachineOperationResult.totalBranchRecords
-                  ? `${translateText("Tong du lieu chi nhanh")}: ${activeAttendanceMachineOperationResult.totalBranchRecords}`
-                  : undefined,
-              )}
-              {renderInfoCard(
-                "Du lieu tu thiet bi",
-                String(
-                  activeAttendanceMachineOperationResult.pulledFromDeviceCount ||
-                    activeAttendanceMachineOperationResult.deviceUserCount ||
-                    0,
-                ),
-                activeAttendanceMachineOperationResult.pulledFromDeviceCount
-                  ? `${translateText("Da pull log tu may")}: ${activeAttendanceMachineOperationResult.pulledFromDeviceCount}`
-                  : activeAttendanceMachineOperationResult.deviceUserCount
-                    ? `${translateText("User tren may")}: ${activeAttendanceMachineOperationResult.deviceUserCount}`
-                    : undefined,
-              )}
-              {renderInfoCard(
-                "Ket qua import / doi soat",
-                String(
-                  activeAttendanceMachineOperationResult.deletedCount ||
-                    activeAttendanceMachineOperationResult.importedCount ||
-                    activeAttendanceMachineOperationResult.staffCount ||
-                    0,
-                ),
-                [
-                  activeAttendanceMachineOperationResult.deletedCount !== undefined
-                    ? `${translateText("Da xoa")}: ${activeAttendanceMachineOperationResult.deletedCount}`
-                    : "",
-                  activeAttendanceMachineOperationResult.customerCount
-                    ? `${translateText("Hoi vien san sang")}: ${activeAttendanceMachineOperationResult.customerCount}`
-                    : "",
-                  activeAttendanceMachineOperationResult.duplicateCount
-                    ? `${translateText("Trung")}: ${activeAttendanceMachineOperationResult.duplicateCount}`
-                    : "",
-                  activeAttendanceMachineOperationResult.unmatchedCount
-                    ? `${translateText("Chua map")}: ${activeAttendanceMachineOperationResult.unmatchedCount}`
-                    : "",
-                  activeAttendanceMachineOperationResult.missingCodeCount
-                    ? `${translateText("Thieu ma")}: ${activeAttendanceMachineOperationResult.missingCodeCount}`
-                    : "",
-                  activeAttendanceMachineOperationResult.fileName
-                    ? `${translateText("Tep xuat")}: ${activeAttendanceMachineOperationResult.fileName}`
-                    : "",
-                ]
-                  .filter(Boolean)
-                  .join(" | ") || undefined,
-              )}
-              {activeAttendanceMachineOperationResult.rangeFrom ||
-              activeAttendanceMachineOperationResult.rangeTo ||
-              activeAttendanceMachineOperationResult.totalMachineLogCount !== undefined ||
-              activeAttendanceMachineOperationResult.remainingLogCount !== undefined ||
-              activeAttendanceMachineOperationResult.deleteStrategy
-                ? renderInfoCard(
-                    activeAttendanceMachineOperationResult.rangeFrom ||
-                      activeAttendanceMachineOperationResult.rangeTo
-                      ? "Khoang du lieu"
-                      : "Pham vi thao tac",
-                    activeAttendanceMachineOperationResult.rangeFrom ||
-                      activeAttendanceMachineOperationResult.rangeTo
-                      ? [
-                          activeAttendanceMachineOperationResult.rangeFrom
-                            ? formatDate(String(activeAttendanceMachineOperationResult.rangeFrom))
-                            : translateText("Chua co"),
-                          activeAttendanceMachineOperationResult.rangeTo
-                            ? formatDate(String(activeAttendanceMachineOperationResult.rangeTo))
-                            : translateText("Chua co"),
-                        ].join(" - ")
-                      : translateText("Toan bo log tren may"),
-                    [
-                      activeAttendanceMachineOperationResult.totalMachineLogCount !== undefined
-                        ? `${translateText("Tong log tren may")}: ${activeAttendanceMachineOperationResult.totalMachineLogCount}`
-                        : "",
-                      activeAttendanceMachineOperationResult.remainingLogCount !== undefined
-                        ? `${translateText("Con lai sau khi xoa")}: ${activeAttendanceMachineOperationResult.remainingLogCount}`
-                        : "",
-                      activeAttendanceMachineOperationResult.deleteStrategy
-                        ? `${translateText("Cach xoa")}: ${activeAttendanceMachineOperationResult.deleteStrategy}`
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" | ") || undefined,
-                  )
-                : null}
-            </div>
-            {activeAttendanceMachineOperationResult.description ? (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                <div className="font-semibold">{translateText(String(activeAttendanceMachineOperationResult.title || "Ket qua dong bo"))}</div>
-                <div className="mt-1">{translateText(String(activeAttendanceMachineOperationResult.description || ""))}</div>
-              </div>
-            ) : null}
-            {activeAttendanceMachineOperationResult.connector || activeAttendanceMachineOperationResult.connectorResult ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  {renderInfoCard(
-                    "Connector",
-                    String(
-                      activeAttendanceMachineOperationResult.connector?.displayName ||
-                        activeAttendanceMachineOperationResult.connector?.key ||
-                        "-",
-                    ),
-                    String(activeAttendanceMachineOperationResult.connector?.vendor || "-"),
-                  )}
-                  {renderInfoCard(
-                    "Ho tro thao tac",
-                    resolveTextDisplay(
-                      Boolean(activeAttendanceMachineOperationResult.connectorResult?.supported).toString(),
-                    ),
-                    String(activeAttendanceMachineOperationResult.connectorResult?.message || "-"),
-                  )}
-                  {renderInfoCard(
-                    "May / chi nhanh",
-                    String(activeAttendanceMachineOperationResult.machineName || activeAttendanceMachineOperationResult.machineCode || "-"),
-                    String(activeAttendanceMachineOperationResult.branchName || "-"),
-                  )}
-                  {renderInfoCard(
-                    "Cursor dong bo",
-                    String(detailData.lastLogCursor || detailData.lastUserSyncCursor || "-"),
-                    `${translateText("Heartbeat")}: ${formatDateTime(String(detailData.lastHeartbeatDateTime || ""))}`,
-                  )}
-                </div>
-                {activeAttendanceMachineOperationResult.connectorResult?.metadata &&
-                Object.keys(activeAttendanceMachineOperationResult.connectorResult.metadata).length ? (
-                  <div className="mt-4">
-                    {renderMiniTable(
-                      ["Thuoc tinh", "Gia tri"],
-                      Object.entries(activeAttendanceMachineOperationResult.connectorResult.metadata).map(([key, value]) => [
-                        translateText(key),
-                        <div className="max-w-[420px] whitespace-pre-wrap break-all" key={key}>
-                          {formatSnapshotValue(value)}
-                        </div>,
-                      ]),
-                      "Khong co metadata",
-                      "Connector khong tra ve metadata bo sung.",
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {Array.isArray(activeAttendanceMachineOperationResult.machineUsersPreview) &&
-            activeAttendanceMachineOperationResult.machineUsersPreview.length ? (
-              <div className="space-y-2">
-                <div className="text-sm font-semibold text-slate-900">{translateText("Preview user dang co tren may")}</div>
-                {renderMiniTable(
-                  ["Ma tren may", "Ten", "Ma app", "Chi tiet"],
-                  activeAttendanceMachineOperationResult.machineUsersPreview.map((record, index) => [
-                    String(record.machineUserId || record.machineCode || record.entityCode || "-"),
-                    String(record.displayName || "-"),
-                    String(record.appAttendanceCode || record.attendanceCode || "-"),
-                    [
-                      record.metadata && typeof record.metadata === "object"
-                        ? `uid: ${String((record.metadata as Record<string, unknown>).uid || "-")}`
-                        : "",
-                      record.metadata && typeof record.metadata === "object"
-                        ? `card: ${String((record.metadata as Record<string, unknown>).cardNo || "-")}`
-                        : "",
-                      record.metadata && typeof record.metadata === "object"
-                        ? `role: ${String((record.metadata as Record<string, unknown>).role || "-")}`
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" | ") || String(record.note || index + 1),
-                  ]),
-                  "Chua co user tren may",
-                  "Hay chay thao tac tai ma cham cong ve may tinh de xem preview user tren may.",
-                )}
-              </div>
-            ) : null}
-            {Array.isArray(activeAttendanceMachineOperationResult.devicePreview) &&
-            activeAttendanceMachineOperationResult.devicePreview.length ? (
-              <div className="space-y-2">
-                <div className="text-sm font-semibold text-slate-900">{translateText("Preview log vua pull tu may")}</div>
-                {renderMiniTable(
-                  ["Ma tren may", "Thoi diem", "Loai", "Xac thuc", "Chi tiet"],
-                  activeAttendanceMachineOperationResult.devicePreview.map((record, index) => [
-                    String(record.machineUserId || record.rawCode || "-"),
-                    formatDateTime(String(record.eventAt || "")),
-                    <StatusBadge
-                      key={`${String(record.externalEventId || index)}-machine-device-event-type`}
-                      value={String(record.eventType || "CHECK_IN")}
-                    />,
-                    <StatusBadge
-                      key={`${String(record.externalEventId || index)}-machine-device-verify`}
-                      value={String(record.verificationMethod || "MANUAL")}
-                    />,
-                    String(record.rawCode || "-"),
-                  ]),
-                  "Chua co log tu may",
-                  "Hay chay thao tac tai du lieu cham cong de xem preview log tu may.",
-                )}
-              </div>
-            ) : null}
-            {Array.isArray(activeAttendanceMachineOperationResult.preview) && activeAttendanceMachineOperationResult.preview.length
-              ? renderMiniTable(
-                  ["Loai", "Ma", "Ten", "Ma cham cong", "Trang thai", "Ghi chu"],
-                  activeAttendanceMachineOperationResult.preview.map((record, index) => [
-                    attendanceMachineRecordTypeLabel(record.recordType),
-                    String(record.entityCode || "-"),
-                    String(record.displayName || "-"),
-                    String(record.attendanceCode || record.identifier || "-"),
-                    <StatusBadge
-                      key={`${String(record.entityId || index)}-machine-operation-status`}
-                      value={String(record.status || record.eventType || "ACTIVE")}
-                    />,
-                    [record.note, record.eventAt ? formatDateTime(String(record.eventAt)) : "", record.source ? resolveTextDisplay(record.source, "source") : ""]
-                      .filter(Boolean)
-                      .join(" | ") || "-",
-                  ]),
-                  "Chua co du lieu preview",
-                  "Hay thuc hien mot thao tac dong bo de xem ket qua chi tiet.",
-                )
-              : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                  {translateText("Khong co du lieu dong bo gan day cho may nay.")}
-                </div>
-              )}
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            {translateText("Khong co du lieu dong bo gan day cho may nay.")}
-          </div>
-        ),
+        content: <LazyAttendanceMachineOperationResultSection detailData={detailData} selectedId={selectedId} />,
       });
 
       nextSections.push({
         key: "events",
         label: "Su kien gan day",
         count: Array.isArray(detailData.recentEvents) ? detailData.recentEvents.length : Number(detailData.eventCount || 0),
-        content: renderMiniTable(
-          ["Thoi diem", "Nhan vien", "Loai", "Nguon", "Ghi chu"],
-          ((detailData.recentEvents as Array<Record<string, unknown>> | undefined) || []).map((event) => [
-            formatDateTime(String(event.eventDateTime || event.eventAt || "")),
-            String(event.staffName || event.staffCode || "-"),
-            <StatusBadge key={`${String(event.id)}-machine-event-type`} value={String(event.eventType || "")} />,
-            <StatusBadge key={`${String(event.id)}-machine-event-source`} value={String(event.source || "")} />,
-            String(event.note || "-"),
-          ]),
-          "Chua co su kien",
-          "May cham cong nay chua ghi nhan su kien nao.",
-        ),
+        content: <LazyAttendanceMachineEventsSection detailData={detailData} />,
       });
     }
 
@@ -3397,41 +2644,19 @@ export function ResourceDetailDrawer({
       nextSections.push({
         key: "presence-status",
         label: "Trang thai hien dien",
-        content: (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {renderInfoCard("Hoi vien", String(detailData.fullName || detailData.customerInfo || "-"), String(detailData.code || detailData.attendanceCode || "-"))}
-            {renderInfoCard("Trang thai", resolveTextDisplay(detailData.presenceStatus, "presenceStatus", detailData), String(detailData.presenceStatusNote || "-"))}
-            {renderInfoCard("Dang tap tu", formatDateTime(String(detailData.currentSessionStartedAt || "")), String(detailData.currentSessionDurationLabel || translateText("Khong co phien dang mo")))}
-            {renderInfoCard("Moc qua ngay", formatDateTime(String(detailData.nextAutoCloseAt || "")), formatDateTime(String(detailData.lastCheckOutAt || detailData.lastPresenceAt || "")))}
-          </div>
-        ),
+        content: <LazyMemberPresenceStatusSection detailData={detailData} />,
       });
 
       nextSections.push({
         key: "presence-toggle",
         label: "Xac nhan dang tap / off",
-        content: canToggleMemberPresence ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
-            <div className="text-sm font-semibold text-slate-900">{translateText("Thao tac nhanh tai quay")}</div>
-            <div className="mt-1 text-sm text-slate-600">{translateText("Bam mot lan de doi trang thai hoi vien dang tap / off. Neu phien mo qua moc sang ngay moi, he thong se tu dong dong phien cu va lan bam moi se mo phien moi.")}</div>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                className={`rounded-xl px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60 ${
-                  String(detailData.presenceStatus || "") === "ACTIVE" ? "bg-slate-900" : "bg-emerald-600"
-                }`}
-                disabled={memberPresenceToggleMutation.isPending}
-                onClick={() => void memberPresenceToggleMutation.mutateAsync()}
-                type="button"
-              >
-                {translateText(String(detailData.toggleActionLabel || "Xac nhan dang tap"))}
-              </button>
-              <StatusBadge value={String(detailData.presenceStatus || "")} />
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            {translateText("Tai khoan hien tai khong co quyen cap nhat trang thai hien dien hoi vien.")}
-          </div>
+        content: (
+          <LazyMemberPresenceToggleSection
+            canToggleMemberPresence={Boolean(canToggleMemberPresence)}
+            detailData={detailData}
+            onRefresh={refreshResourceData}
+            selectedId={selectedId}
+          />
         ),
       });
 
@@ -3439,21 +2664,7 @@ export function ResourceDetailDrawer({
         key: "presence-sessions",
         label: "Lich su hien dien",
         count: Array.isArray(detailData.sessions) ? detailData.sessions.length : Number(detailData.sessionCount || 0),
-        content: renderMiniTable(
-          ["Check-in", "Check-out", "Trang thai", "Nguon", "Thoi luong", "May / ghi chu"],
-          ((detailData.sessions as Array<Record<string, unknown>> | undefined) || []).map((session) => [
-            formatDateTime(String(session.checkInAt || "")),
-            session.checkOutAt ? formatDateTime(String(session.checkOutAt || "")) : "-",
-            <StatusBadge key={`${String(session.id)}-presence-status`} value={String(session.status || "")} />,
-            <StatusBadge key={`${String(session.id)}-presence-source`} value={String(session.source || "")} />,
-            `${String(session.durationMinutes || 0)} ${translateText("phut")}`,
-            [String(session.machineName || ""), String(session.note || "")]
-              .filter(Boolean)
-              .join(" | ") || "-",
-          ]),
-          "Chua co phien hien dien",
-          "Hoi vien nay chua co lan xac nhan dang tap / off nao.",
-        ),
+        content: <LazyMemberPresenceSessionsSection detailData={detailData} />,
       });
     }
 
@@ -3463,17 +2674,42 @@ export function ResourceDetailDrawer({
         label: detailKey === "shop-sales" ? "Thong tin ban hang" : "Thong tin thu",
         content: (
           <div className="grid gap-3 md:grid-cols-2">
-            {renderInfoCard(detailKey === "shop-sales" ? "Khach mua" : "Khach hang", String(detailData.customerName || "-"), String(detailData.customerPhone || "-"))}
+            {renderInfoCard(detailKey === "shop-sales" ? "Khach mua" : "Nguoi nop", String(detailData.customerName || "-"), String(detailData.customerPhone || "-"))}
             {renderInfoCard(
               "Hop dong",
               String(detailData.contractCode || "-"),
               String(detailData.contractPackageName || translateText("Khong lien ket hop dong")),
             )}
             {renderInfoCard("Phuong thuc", resolveTextDisplay(detailData.paymentMethodName, "paymentMethodName", detailData), String(detailData.collectorName || "-"))}
+            {renderInfoCard(detailKey === "shop-sales" ? "Kenh ban" : "Nguon thu", String(detailData.sourceLabel || detailData.sourceType || "-"), String(detailData.branchName || "-"))}
             {renderInfoCard(detailKey === "shop-sales" ? "Noi dung ban" : "Noi dung", String(detailData.content || "-"), String(detailData.note || ""))}
           </div>
         ),
       });
+
+      if (
+        String(detailData.sourceType || "").trim().toUpperCase() === "TOWEL_RENTAL" ||
+        Array.isArray(detailData.linkedTowelIssues)
+      ) {
+        nextSections.push({
+          key: "linked-towel-issues",
+          label: "Phieu phat khan tu dong",
+          count: Array.isArray(detailData.linkedTowelIssues) ? detailData.linkedTowelIssues.length : Number(detailData.towelIssueCount || 0),
+          content: renderMiniTable(
+            ["Ma phieu", "Vat tu", "Ngay phat", "Ngay tra", "So luong", "Trang thai"],
+            ((detailData.linkedTowelIssues as Array<Record<string, unknown>> | undefined) || []).map((issue) => [
+              String(issue.code || "-"),
+              String(issue.productOptionLabel || issue.productName || "-"),
+              formatDateTime(String(issue.issueDate || "")),
+              issue.returnDate ? formatDateTime(String(issue.returnDate || "")) : "-",
+              String(issue.quantity || 0),
+              <StatusBadge key={`${String(issue.id || issue.code)}-receipt-towel-issue-status`} value={String(issue.status || "")} />,
+            ]),
+            "Chua co phieu phat khan",
+            "Nguon thu nay se tu sinh phieu phat khan khi phieu thu o trang thai hoan tat va da chon hoi vien.",
+          ),
+        });
+      }
     }
 
     if (normalizedDetailKey === "expenses") {
@@ -3520,16 +2756,7 @@ export function ResourceDetailDrawer({
       nextSections.push({
         key: "attendance",
         label: "Thong tin cham cong",
-        content: (
-          <div className="grid gap-3 md:grid-cols-2">
-            {renderInfoCard("Nhan vien", String(detailData.staffName || "-"), String(detailData.roleNames || detailData.staffCode || "-"))}
-            {renderInfoCard("Chi nhanh", String(detailData.branchName || "-"), String(detailData.machineName || translateText("Khong gan may cham cong")))}
-            {renderInfoCard("Thoi diem", formatDateTime(String(detailData.eventAt || "")), String(detailData.eventDate || "-"))}
-            {renderInfoCard("Nguon / xac thuc", String(detailData.source || "-"), String(detailData.verificationMethod || "-"))}
-            {renderInfoCard("Ma cham cong", String(detailData.rawCode || "-"), String(detailData.eventType || "-"))}
-            {renderInfoCard("Ghi chu", String(detailData.note || "-"), translateText("Nen ghi ro ly do dieu chinh de audit sau nay."))}
-          </div>
-        ),
+        content: <LazyStaffAttendanceInfoSection detailData={detailData} />,
       });
     }
 
@@ -3622,7 +2849,12 @@ export function ResourceDetailDrawer({
                 {translateText("Reset mat khau")}
               </button>
             ) : null}
-            {printProfile ? (
+            {canConvertContract ? (
+              <button className="secondary-button" onClick={() => setContractConversionOpen(true)} type="button">
+                {contractConversionActionLabel}
+              </button>
+            ) : null}
+            {canPrintDocument ? (
               <button className="secondary-button" onClick={() => void handlePrintRecord()} type="button">
                 <Printer className="h-4 w-4" />
                 {translateText("In chung tu")}
@@ -3645,6 +2877,14 @@ export function ResourceDetailDrawer({
         }}
         open={resetPasswordOpen}
         username={String(detailData.username || "")}
+      />
+
+      <ContractConversionDialog
+        contract={detailData}
+        defaultConversionType={defaultContractConversionType}
+        onClose={() => setContractConversionOpen(false)}
+        onSuccess={refreshResourceData}
+        open={contractConversionOpen}
       />
     </>
   );
